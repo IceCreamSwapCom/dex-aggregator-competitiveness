@@ -1,0 +1,45 @@
+{{define "title"}}Leaderboard · {{.Sel.ChainName}}{{end}}
+{{define "content"}}
+<section class="intro">
+  <h1>A fair ranking of DEX aggregators</h1>
+  <p class="lede">Every aggregator gets the same trades at the same moment, and each answer is simulated 30 seconds
+  later, about when a user would have signed it in their wallet. All code and data are
+  <a href="https://github.com/IceCreamSwapCom/dex-aggregator-competitiveness">open source</a>, so every result can be
+  <a href="/rounds">verified</a>.</p>
+</section>
+
+{{template "ours"}}
+
+<section class="card board">
+  <div class="board-head">
+    <div>
+      <h2>Leaderboard</h2>
+      <p>{{.Sel.ChainName}} · {{periodName .Sel.Period}} · {{count .Rounds}} trades · <span class="live"></span> updated {{ago .Refreshed}}</p>
+    </div>
+    {{template "filters" .}}
+  </div>
+  {{if .Rows}}
+  <div class="scroll"><table class="lb" data-sortable>
+  <thead><tr>
+    <th class="pos">#</th>
+    <th class="left">Aggregator</th>
+    {{range .Categories}}<th data-sort="{{if .Lower}}asc{{else}}desc{{end}}"><span class="h">{{.Title}} <span class="tip" tabindex="0" data-tip="{{.Help}}">?</span></span><small>{{.Unit}}</small></th>{{end}}
+  </tr></thead>
+  <tbody>
+  {{range .Rows}}<tr data-href="{{.Href}}">
+    <td class="pos" data-v="{{.Pos}}">{{.Pos}}</td>
+    <td class="left"><a class="who" href="{{.Href}}">{{avatar .Aggregator ""}}{{.Name}}</a></td>
+    {{range $i, $m := .Metrics}}<td data-v="{{sortv .V}}"{{if .Best}} class="best"{{else if .Next}} class="next"{{end}}>{{if eq $i 0}}<span class="inbar"><span class="track"><i style="width: {{printf "%.1f" .Bar}}%"></i></span>{{.Text}}</span>{{else}}{{.Text}}{{end}}</td>{{end}}
+  </tr>{{end}}
+  </tbody>
+  </table></div>
+  <div class="board-foot">
+    <span>Ordered by best rate. <b class="good">Green</b> is the best in its column, <b class="next">light green</b> the second. Click a column to sort, an aggregator for its details.</span>
+    <span>Data: <a href="{{.CSV}}" download>CSV</a> · <a href="{{.JSON}}">JSON</a></span>
+  </div>
+  {{else}}
+  <div class="pad"><h3>No trades in this selection yet</h3><p class="muted">Pick another chain, size or period.</p></div>
+  {{end}}
+</section>
+
+{{end}}

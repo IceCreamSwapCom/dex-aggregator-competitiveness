@@ -1,0 +1,96 @@
+{{define "title"}}{{.Name}} · {{.Sel.ChainName}}{{end}}
+{{define "content"}}
+<a class="crumb" href="{{.Board}}">← Leaderboard · {{.Sel.ChainName}}</a>
+<div class="agg-head">
+  {{avatar .ID "lg"}}
+  <div>
+    <h1>{{.Name}}</h1>
+    <p class="muted" style="margin:4px 0 0">{{if .Row}}#{{.Rank}} of {{.Of}} by best rate · {{.Sel.ChainName}} · {{periodName .Sel.Period}}
+    {{else}}No trades of {{.Name}} in this selection.{{end}}</p>
+  </div>
+</div>
+
+<div style="margin-top:20px">{{template "filters" .}}</div>
+
+{{with .Row}}
+<section class="section">
+  <div class="kpis">
+  {{range $.Charts}}{{$c := .}}{{range .Rows}}{{if eq .Aggregator $.ID}}
+    <div class="card pad kpi">
+      <div class="k">{{$c.Title}} <span class="tip" tabindex="0" data-tip="{{$c.Help}}">?</span></div>
+      <div class="v">{{.Text}}</div>
+      <div class="u">{{$c.Unit}}</div>
+      {{if .Rank}}<span class="chip{{if eq .Rank 1}} good{{else if eq .Rank 2}} next{{end}} r">#{{.Rank}} of {{len $c.Rows}}</span>{{end}}
+      {{template "bars" $c}}
+    </div>
+  {{end}}{{end}}{{end}}
+  </div>
+  <p class="faint note">Data: <a href="{{$.CSV}}" download>its quotes (CSV)</a> · <a href="{{$.JSON}}">the leaderboard (JSON)</a></p>
+</section>
+
+{{end}}
+
+{{if .BySize}}<section class="section"><div class="section-head"><div><h2>By trade size</h2></div></div>{{template "groups" .BySize}}</section>{{end}}
+{{if .ByChain}}<section class="section"><div class="section-head"><div><h2>By chain</h2></div></div>{{template "groups" .ByChain}}</section>{{end}}
+
+{{if .Quotes}}
+<section class="section">
+  <div class="section-head"><div><h2>Latest trades</h2><p>Each one opens with every aggregator's quote, transaction and simulation.</p></div></div>
+  <div class="card tablecard"><div class="scroll"><table>
+  <thead><tr><th class="left">When</th><th class="left">Chain</th><th>Sells</th><th class="left">For</th><th>Size</th><th class="left">Result</th></tr></thead>
+  <tbody>{{range .Quotes}}<tr>
+    <td class="left"><a href="/rounds/{{.RoundID}}">{{ago .StartedAt}}</a></td>
+    <td class="left">{{.Chain}}</td>
+    <td>{{.Amount}} {{.In}}</td>
+    <td class="left">{{.Out}}</td>
+    <td>${{.SizeBucket}}</td>
+    <td class="left"><span class="chip {{.Class}}">{{.Result}}</span></td>
+  </tr>{{end}}</tbody>
+  </table></div></div>
+</section>
+{{end}}
+
+{{if or .Answers .Failures}}
+<section class="section">
+  <div class="section-head"><div><h2>Answers and failures</h2></div></div>
+  <div class="two">
+  {{if .Answers}}<div class="card tablecard"><table>
+    <thead><tr><th class="left">Answer</th><th>Requests</th><th>Share</th></tr></thead>
+    <tbody>{{range .Answers}}<tr><td class="left">{{.Name}}</td><td>{{.N}}</td><td>{{pct (ptr .Share)}}</td></tr>{{end}}</tbody>
+  </table></div>{{end}}
+  {{if .Failures}}<div class="card tablecard"><div class="scroll"><table>
+    <thead><tr><th class="left">What failed</th><th class="left">Reason</th><th>Times</th></tr></thead>
+    <tbody>{{range .Failures}}<tr><td class="left">{{.Key}}</td><td class="left wrap mono">{{if .Detail}}{{.Detail}}{{else}}<span class="faint">none given</span>{{end}}</td><td>{{.N}}</td></tr>{{end}}</tbody>
+  </table></div></div>{{end}}
+  </div>
+</section>
+{{end}}
+
+<section class="section">
+  <div class="card pad">
+    <h3>How {{.Name}} is asked</h3>
+    <p class="muted" style="margin:6px 0 0">The exact request the benchmark sends is in its adapter,
+    <a href="{{.Source}}">internal/aggregator/{{.ID}}</a>. Like every aggregator, it is asked the way that gets
+    its best offer (<a href="/methodology#fair">methodology</a>).</p>
+  </div>
+</section>
+{{end}}
+
+{{define "groups"}}
+<div class="card tablecard"><div class="scroll"><table>
+<thead><tr>
+  <th class="left"></th><th>Best rate<small>of trades won</small></th><th>Near-best<small>within 1 bp</small></th>
+  <th>Quote accuracy<small>avg. bp vs. quote</small></th>
+  <th>Revert rate<small>of transactions</small></th><th>Latency<small>median · p90</small></th><th>Trades<small>asked · compared</small></th>
+</tr></thead>
+<tbody>{{range .}}<tr>
+  <td class="left"><b>{{.Name}}</b></td>
+  <td><span class="inbar"><span class="track"><i style="width: {{width .Win}}%"></i></span><b>{{pct .Win}}</b></span></td>
+  <td>{{pct .Within1Bp}}</td>
+  <td>{{accuracy .AccuracyT30}}</td>
+  <td>{{pct .Reverts}}</td>
+  <td>{{millis .LatencyP50Ms}} <span class="faint">· {{millis .LatencyP90Ms}}</span></td>
+  <td>{{count .Requests}} <span class="faint">· {{count .RankedRounds}}</span></td>
+</tr>{{end}}</tbody>
+</table></div></div>
+{{end}}

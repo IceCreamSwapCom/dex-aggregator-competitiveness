@@ -1,0 +1,86 @@
+{{define "title"}}Methodology{{end}}
+{{define "content"}}
+<div class="method">
+<section class="intro">
+  <h1>How the ranking is made</h1>
+  <p class="lede">Every aggregator is measured the same way, on the trades users really make. This is the short
+  version; the <a href="{{.Full}}">full rules</a> give every formula. Methodology version {{.Version}}.</p>
+</section>
+
+<section>
+  <h2>One trade, step by step</h2>
+  <ol class="steps">
+    <li><h3>A real trade</h3>
+      <p>Chain, pair and size are drawn in proportion to real aggregator volume, read from public on-chain swaps.
+      The amount varies by up to 25%, so no answer can be prepared in advance.</p></li>
+    <li><h3>The same request for all</h3>
+      <p>Every aggregator is asked at the same moment, with the same slippage (0.5%, 0.1% between stablecoins), no
+      integrator fee and a fresh wallet. Each has 5 seconds to answer.</p></li>
+    <li><h3>Executed at once</h3>
+      <p>Each returned transaction is simulated at the block it was quoted at, with real balances, approval, gas
+      price and gas limit. What counts is how much the wallet received.</p></li>
+    <li><h3>Executed 30 s later</h3>
+      <p>Each transaction that succeeded is simulated again 30 seconds later, about when a user would have signed
+      it in their wallet.</p></li>
+  </ol>
+</section>
+
+<section>
+  <h2>What the leaderboard measures</h2>
+  <div class="defs">
+    <div class="card pad"><h3>Best rate <span class="chip">% of trades</span></h3>
+      <p>How often it gave the user the most: the output when executed at once, minus the gas the transaction
+      costs. A trade counts once at least two aggregators delivered; an aggregator that failed in it loses it.
+      Exact ties split the win.</p></div>
+    <div class="card pad"><h3>Quote accuracy <span class="chip">bp</span></h3>
+      <p>How far the output 30 seconds later fell below the quote, on average (1 bp = 0.01%). Receiving more than
+      quoted counts as 0, so surplus on one trade cannot hide an over-promise on another.</p></div>
+    <div class="card pad"><h3>Revert rate <span class="chip">% of transactions</span></h3>
+      <p>How many returned transactions failed, at once or 30 seconds later. Errors, timeouts and missing routes are
+      not reverts: they lose the trade under best rate.</p></div>
+    <div class="card pad"><h3>Latency <span class="chip">ms</span></h3>
+      <p>Median time from sending the request to having the full answer. A timeout counts as 5,000 ms; opening the
+      connection is not counted.</p></div>
+  </div>
+</section>
+
+<section id="fair">
+  <h2>Fair to every aggregator</h2>
+  <ul class="checks">
+    <li><b>Same moment, same request.</b> Requests are released together; the exact request of each aggregator is
+      in its <a href="{{.Adapters}}">open-source adapter</a>.</li>
+    <li><b>Every chain counts.</b> Every aggregator is asked on every chain; on a chain it does not serve, it loses the
+      trade.</li>
+    <li><b>No fees asked for.</b> Each API runs with its defaults. A fee an API charges by default is what its users
+      pay, so it is part of the result.</li>
+    <li><b>Each at its best.</b> Aggregators serve a request by who sends it: an API key, an integrator id. Each one
+      is asked the way that gets its best offer, so the ranking compares the best every aggregator can deliver.</li>
+    <li><b>Our failures are ours.</b> If the benchmark's own infrastructure fails, the trade is dropped and never
+      counted against anyone.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Check it yourself</h2>
+  <div class="verify">
+    <a class="card pad" href="/rounds"><h3>Every trade →</h3>
+      <p>Each one with every quote, transaction, simulation and revert reason.</p></a>
+    <a class="card pad" href="/api/v1/export.csv?period=7d" download><h3>Raw data ↓</h3>
+      <p>The quotes behind the leaderboard as CSV, to recompute it.</p></a>
+    <a class="card pad" href="{{.Resim}}"><h3>Re-simulate ↗</h3>
+      <p><code>resim</code> re-runs any stored trade at its own blocks and reports every difference.</p></a>
+    <a class="card pad" href="{{.Repo}}"><h3>Run your own ↗</h3>
+      <p><code>docker compose up</code> runs the whole benchmark with your own node.</p></a>
+  </div>
+</section>
+
+<section>
+  <h2>Known limits</h2>
+  <ul class="limits">
+    <li>Effects of a transaction's position in a block cannot be simulated; the run 30 seconds later is the backstop.</li>
+    <li>On rollups, the fee for posting data to Ethereum is not counted. Since 2024 it is far below 1 bp.</li>
+    <li>During the simulation the wallet is a contract, as many wallets are today (EIP-7702).</li>
+  </ul>
+</section>
+</div>
+{{end}}

@@ -1,0 +1,7 @@
+*.exe
+*.test
+/collector
+.env
+/web
+/resim
+/distribution

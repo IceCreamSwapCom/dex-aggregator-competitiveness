@@ -1,0 +1,33 @@
+{{define "title"}}Rounds{{end}}
+{{define "content"}}
+<div class="page-head">
+<h1>Every trade</h1>
+<p>Every round the collectors stored, newest first: one trade, sent to every aggregator at the same moment. Each one
+shows every quote, transaction and simulation, and the command that re-simulates it.</p>
+</div>
+
+<div class="toolbar" style="margin-bottom:16px">{{template "menu" (menu "Chain" .ChainPills)}}</div>
+
+{{if .Rows}}
+<div class="card tablecard"><div class="scroll"><table>
+<thead><tr>
+  <th class="left">Started</th><th class="left">Chain</th><th>Sells</th><th class="left">For</th><th>Size</th>
+  <th class="left">Region</th><th>Succeeded at T0</th>
+</tr></thead>
+<tbody>
+{{range .Rows}}<tr>
+  <td class="left"><a href="/rounds/{{.ID}}">{{time .StartedAt}}</a></td>
+  <td class="left">{{.Chain}}</td>
+  <td>{{.Amount}} {{.In}}</td>
+  <td class="left">{{.Out}}</td>
+  <td>${{.SizeBucket}}</td>
+  <td class="left">{{.Region}}</td>
+  <td>{{.SucceededT0}} of {{.Quotes}}</td>
+</tr>{{end}}
+</tbody>
+</table></div></div>
+{{if .Older}}<a class="btn older" href="{{.Older}}">Older trades →</a>{{end}}
+{{else}}
+<div class="card pad"><p class="muted" style="margin:0">No trades yet.</p></div>
+{{end}}
+{{end}}

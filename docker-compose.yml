@@ -1,0 +1,55 @@
+# Your own copy of the benchmark: Postgres, a collector, and the dashboard with its API.
+#
+#   docker compose up --build
+#
+# Then http://localhost:8080 shows the dashboard of the rounds your collector ran.
+# Every chain in config/benchmark.json needs its RPC_<chainId>. The defaults are
+# free public nodes; set your own (in .env, say) for more rounds per minute.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 30
+
+  collector:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      REGION: ${REGION:-local}
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
+      SLOTS_API_URL: ${SLOTS_API_URL:-https://api.nordstern.finance/slots}
+      RPC_1: ${RPC_1:-https://ethereum-rpc.publicnode.com}
+      RPC_56: ${RPC_56:-https://bsc-rpc.publicnode.com}
+      RPC_8453: ${RPC_8453:-https://base-rpc.publicnode.com}
+      RPC_4663: ${RPC_4663:-https://rpc.mainnet.chain.robinhood.com}
+      RPC_137: ${RPC_137:-https://polygon-bor-rpc.publicnode.com}
+      RPC_42161: ${RPC_42161:-https://arbitrum-one-rpc.publicnode.com}
+      RPC_43114: ${RPC_43114:-https://avalanche-c-chain-rpc.publicnode.com}
+      # Keys of the aggregators that need one; docker compose reads them from .env too.
+      ZEROX_API_KEY: ${ZEROX_API_KEY:-}
+      LIFI_API_KEY: ${LIFI_API_KEY:-}
+      ENSO_API_KEY: ${ENSO_API_KEY:-}
+
+  web:
+    build: .
+    command: ["web", "-config", "/config/benchmark.json"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
