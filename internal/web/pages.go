@@ -68,9 +68,8 @@ type leaderboardData struct {
 }
 
 func (s *Server) leaderboardPage(w http.ResponseWriter, r *http.Request) {
-	sel, err := s.selection(r.URL.Query())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	sel, ok := s.parse(w, r)
+	if !ok {
 		return
 	}
 	sel.Aggregator = "" // the leaderboard is of every aggregator
@@ -130,9 +129,8 @@ const (
 
 func (s *Server) aggregatorPage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	sel, err := s.selection(r.URL.Query())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	sel, ok := s.parse(w, r)
+	if !ok {
 		return
 	}
 	if !idPattern.MatchString(id) {
@@ -181,6 +179,7 @@ func (s *Server) aggregatorPage(w http.ResponseWriter, r *http.Request) {
 			d.ByChain = append(d.ByChain, namedGroup{Name: s.chainName(id), Group: g})
 		}
 	}
+	bySize = slices.Clone(bySize) // the cache's, shared
 	slices.SortFunc(bySize, func(a, b stats.Group) int { return int(config.BucketValue(a.Key) - config.BucketValue(b.Key)) })
 	for _, g := range bySize {
 		d.BySize = append(d.BySize, namedGroup{Name: "$" + g.Key, Group: g})

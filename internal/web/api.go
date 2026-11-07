@@ -2,10 +2,11 @@ package web
 
 import (
 	"compress/gzip"
+	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,11 +19,11 @@ import (
 const maxLimit = 1000
 
 func (s *Server) leaderboardAPI(w http.ResponseWriter, r *http.Request) {
-	sel, err := s.selection(r.URL.Query())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	sel, ok := s.parse(w, r)
+	if !ok {
 		return
 	}
+	sel.Aggregator = "" // the leaderboard is of every aggregator
 	rows, err := s.board.Leaderboard(r.Context(), sel.filter())
 	if err != nil {
 		serverError(w, r, err)
@@ -96,13 +97,22 @@ func (s *Server) findRound(w http.ResponseWriter, r *http.Request) (*api.Round, 
 // exportCSV streams the quotes of a leaderboard's selection as CSV, the rows
 // its numbers are computed from.
 func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
-	sel, err := s.selection(r.URL.Query())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	sel, ok := s.parse(w, r)
+	if !ok {
+		return
+	}
+	select {
+	case s.exports <- struct{}{}:
+		defer func() { <-s.exports }()
+	default:
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "other exports are running; try again in a minute", http.StatusTooManyRequests)
 		return
 	}
 	// A month of rounds takes longer than the server's write timeout.
-	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Minute))
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(exportTimeout))
+	ctx, cancel := context.WithTimeout(r.Context(), exportTimeout)
+	defer cancel()
 	chain := "all"
 	if sel.ChainID != 0 {
 		chain = strconv.FormatUint(sel.ChainID, 10)
@@ -114,7 +124,7 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s.csv"`, name, time.Now().UTC().Format("20060102")))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name + "-" + time.Now().UTC().Format("20060102") + ".csv"}))
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	sw := &sentWriter{w: w}
 	var out io.Writer = sw
@@ -124,7 +134,7 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 		gz = gzip.NewWriter(sw)
 		out = gz
 	}
-	err = s.board.Export(r.Context(), sel.filter(), out)
+	err := s.board.Export(ctx, sel.filter(), out)
 	switch {
 	case err == nil && gz != nil:
 		_ = gz.Close()

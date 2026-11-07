@@ -46,16 +46,23 @@ type Board interface {
 type Server struct {
 	cfg       *config.Config
 	rounds    Rounds
-	board     Board
-	refreshed atomic.Int64 // unix seconds of the last metrics refresh
+	board     *cachedBoard
+	exports   chan struct{} // a slot per CSV export that may stream at once
+	refreshed atomic.Int64  // unix seconds of the last metrics refresh
 }
 
 func New(cfg *config.Config, rounds Rounds, board Board) *Server {
-	return &Server{cfg: cfg, rounds: rounds, board: board}
+	s := &Server{cfg: cfg, rounds: rounds, board: newCachedBoard(board), exports: make(chan struct{}, exportWorkers)}
+	s.refreshed.Store(time.Now().Unix())
+	return s
 }
 
-// Refreshed records when the metrics were last recomputed.
-func (s *Server) Refreshed(t time.Time) { s.refreshed.Store(t.Unix()) }
+// Refreshed records when the metrics were last recomputed, and forgets the
+// answers from before.
+func (s *Server) Refreshed(t time.Time) {
+	s.board.refreshed()
+	s.refreshed.Store(t.Unix())
+}
 
 func (s *Server) refreshedAt() time.Time { return time.Unix(s.refreshed.Load(), 0).UTC() }
 
@@ -71,6 +78,9 @@ func (s *Server) refreshedAt() time.Time { return time.Unix(s.refreshed.Load(), 
 //	                                                default now), newest first, at most limit (100, ≤ 1000)
 //	GET /api/v1/rounds/{id}                         one round, everything resim needs
 //	GET /static/logos/{id}.png|svg                  the aggregators' logos
+//	GET /static/app.js                              the pages' script
+//
+// Every request but an export has requestTimeout (guard.go).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.leaderboardPage)
@@ -79,11 +89,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /rounds/{id}", s.roundPage)
 	mux.HandleFunc("GET /methodology", s.methodologyPage)
 	mux.HandleFunc("GET /api/v1/leaderboard", s.leaderboardAPI)
-	mux.HandleFunc("GET /api/v1/export.csv", s.exportCSV)
 	mux.HandleFunc("GET /api/v1/rounds", s.roundsAPI)
 	mux.HandleFunc("GET /api/v1/rounds/{id}", s.roundAPI)
 	mux.Handle("GET /static/", static())
-	return mux
+	top := http.NewServeMux()
+	top.HandleFunc("GET /api/v1/export.csv", s.exportCSV)
+	top.Handle("/", http.TimeoutHandler(mux, requestTimeout, "the request took too long"))
+	return secure(top)
 }
 
 // period is how far back a leaderboard reaches.
@@ -133,8 +145,33 @@ func (s *Server) selection(q url.Values) (selection, error) {
 	if sel.Size != "" && !slices.Contains(sel.Sizes, sel.Size) {
 		return sel, fmt.Errorf("size %q is not a size bucket", sel.Size)
 	}
-	sel.Since = time.Now().Add(-periods[i].D).UTC()
+	// Back from the last refresh: the metrics are as of then, and a selection
+	// stays the same until the next one, so the cache keeps it.
+	sel.Since = s.refreshedAt().Add(-periods[i].D)
 	return sel, nil
+}
+
+// parse reads the request's selection, or answers why it cannot. A region
+// must have rounds: then every selection is one of few, and the cache can
+// keep them all.
+func (s *Server) parse(w http.ResponseWriter, r *http.Request) (selection, bool) {
+	sel, err := s.selection(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return sel, false
+	}
+	if sel.Region != "" {
+		regions, err := s.board.Regions(r.Context())
+		if err != nil {
+			serverError(w, r, err)
+			return sel, false
+		}
+		if !slices.Contains(regions, sel.Region) {
+			http.Error(w, fmt.Sprintf("region %q has no rounds", sel.Region), http.StatusBadRequest)
+			return sel, false
+		}
+	}
+	return sel, true
 }
 
 func (sel selection) filter() stats.Filter {

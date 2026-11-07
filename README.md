@@ -70,13 +70,14 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres go run ./cmd/w
 | `/rounds`, `/rounds/{id}` | round explorer: every quote, simulation and transaction, and the `resim` command for the round |
 | `/methodology` | the methodology in short; it links METHODOLOGY.md |
 | `GET /api/v1/leaderboard?chain=&period=&size=&region=` | the leaderboard, of all chains unless `chain` names one; `period` is `24h`, `7d` (default) or `30d` |
-| `GET /api/v1/export.csv?chain=&period=&size=&region=&aggregator=` | the quotes behind that leaderboard (or one aggregator's) as CSV, one row each, with gas cost, net and win share; linked under the leaderboard and on each aggregator page |
+| `GET /api/v1/export.csv?chain=&period=&size=&region=&aggregator=` | the quotes behind that leaderboard (or one aggregator's) as CSV, one row each, with gas cost, net and win share; linked under the leaderboard and on each aggregator page. Two exports stream at a time; a third gets `429` and `Retry-After` |
 | `GET /api/v1/rounds?chain=&before=&limit=` | rounds that started before `before` (RFC 3339, default now), newest first; `limit` 1–1000, default 100 |
 | `GET /api/v1/rounds/{id}` | one round with every quote, transaction and simulation, in the form of `internal/api` |
 
 Every metric is defined in one file, [internal/stats/metrics.sql](internal/stats/metrics.sql): a materialized
 view with one row per quote that `web` recreates at start and refreshes every 5 minutes. The leaderboard only
-adds its rows up.
+adds its rows up. Periods count back from the last refresh, and `web` keeps every answer until the next one
+([internal/web/guard.go](internal/web/guard.go)).
 
 ### Your own copy
 

@@ -26,6 +26,7 @@ const (
 
 type fakeDB struct {
 	exportErr error // Export fails with it before writing
+	boards    int   // Leaderboard queries asked
 	chainID   uint64
 	before    time.Time
 	limit     int
@@ -61,6 +62,7 @@ func (f *fakeDB) Rounds(_ context.Context, chainID uint64, before time.Time, lim
 
 func (f *fakeDB) Leaderboard(_ context.Context, fl stats.Filter) ([]api.LeaderboardRow, error) {
 	f.filter = fl
+	f.boards++
 	v := func(x float64) *float64 { return &x }
 	return []api.LeaderboardRow{
 		{Aggregator: "a", Requests: 10, RankedRounds: 8, Win: v(0.75), Within1Bp: v(0.9), Within5Bp: v(1),
@@ -278,7 +280,7 @@ func TestUnits(t *testing.T) {
 func TestExport(t *testing.T) {
 	s, db := server(t)
 	h := s.Handler()
-	if w := get(t, h, "/api/v1/export.csv"); !strings.HasPrefix(w.Header().Get("Content-Disposition"), `attachment; filename="dexbench-all-7d-`) {
+	if w := get(t, h, "/api/v1/export.csv"); !strings.HasPrefix(w.Header().Get("Content-Disposition"), `attachment; filename=dexbench-all-7d-`) {
 		t.Errorf("all chains: %v", w.Header())
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/export.csv?chain=8453&period=30d&size=10k", nil)
@@ -286,7 +288,7 @@ func TestExport(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK || w.Header().Get("Content-Encoding") != "gzip" ||
-		!strings.HasPrefix(w.Header().Get("Content-Disposition"), `attachment; filename="dexbench-8453-30d-10k-`) {
+		!strings.HasPrefix(w.Header().Get("Content-Disposition"), `attachment; filename=dexbench-8453-30d-10k-`) {
 		t.Fatalf("%d %v", w.Code, w.Header())
 	}
 	zr, err := gzip.NewReader(w.Body)
@@ -415,5 +417,74 @@ func TestStylesBalanced(t *testing.T) {
 	}
 	if depth != 0 {
 		t.Errorf("%d rules left open", depth)
+	}
+}
+
+// TestGuards checks what keeps the public server cheap and its pages safe.
+func TestGuards(t *testing.T) {
+	s, db := server(t)
+	h := s.Handler()
+
+	// The metrics are asked once until the next refresh.
+	get(t, h, "/?period=30d")
+	get(t, h, "/api/v1/leaderboard?period=30d")
+	if db.boards != 1 {
+		t.Errorf("%d queries for one selection", db.boards)
+	}
+	if want := s.refreshedAt().Add(-30 * 24 * time.Hour); !db.filter.Since.Equal(want) {
+		t.Errorf("since %v, want 30 days before the refresh %v", db.filter.Since, want)
+	}
+	s.Refreshed(time.Now())
+	get(t, h, "/?period=30d")
+	if db.boards != 2 {
+		t.Errorf("%d queries after a refresh", db.boards)
+	}
+
+	// A region without rounds, and an aggregator the leaderboard API does not filter by, are no new selections.
+	if w := get(t, h, "/?region=mars"); w.Code != http.StatusBadRequest {
+		t.Errorf("unknown region: %d", w.Code)
+	}
+	get(t, h, "/api/v1/leaderboard?period=30d&aggregator=zz")
+	if db.boards != 2 || db.filter.Aggregator != "" {
+		t.Errorf("aggregator filter on the leaderboard: %d queries, %+v", db.boards, db.filter)
+	}
+
+	// Exports beyond exportWorkers wait for none: they are told to come back.
+	for range exportWorkers {
+		s.exports <- struct{}{}
+	}
+	if w := get(t, h, "/api/v1/export.csv"); w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") == "" {
+		t.Errorf("busy export: %d %v", w.Code, w.Header())
+	}
+	for range exportWorkers {
+		<-s.exports
+	}
+
+	// Every answer has the security headers, and the page runs no inline script.
+	w := get(t, h, "/")
+	if w.Header().Get("Content-Security-Policy") != csp || w.Header().Get("X-Content-Type-Options") != "nosniff" ||
+		w.Header().Get("X-Frame-Options") != "DENY" {
+		t.Errorf("headers %v", w.Header())
+	}
+	if body := w.Body.String(); strings.Contains(body, "<script>") || !strings.Contains(body, `<script src="/static/app.js"></script>`) {
+		t.Error("the page has inline script")
+	}
+	if w := get(t, h, "/static/app.js"); w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/javascript") {
+		t.Errorf("app.js: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+}
+
+// TestCacheWorkers checks that no more than queryWorkers queries run at once,
+// and that a request whose time is up stops waiting for one.
+func TestCacheWorkers(t *testing.T) {
+	c := newCachedBoard(nil)
+	for range queryWorkers {
+		c.work <- struct{}{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	ran := false
+	if _, err := cached(ctx, c, "k", func() (int, error) { ran = true; return 1, nil }); !errors.Is(err, context.DeadlineExceeded) || ran {
+		t.Errorf("err %v, ran %v", err, ran)
 	}
 }
