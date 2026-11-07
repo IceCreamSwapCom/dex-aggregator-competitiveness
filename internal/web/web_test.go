@@ -287,7 +287,7 @@ func TestExport(t *testing.T) {
 	req.Header.Set("Accept-Encoding", "gzip, br")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != http.StatusOK || w.Header().Get("Content-Encoding") != "gzip" ||
+	if w.Code != http.StatusOK || w.Header().Get("Content-Encoding") != "gzip" || w.Header().Get("Cache-Control") != "public, max-age=300" ||
 		!strings.HasPrefix(w.Header().Get("Content-Disposition"), `attachment; filename=dexbench-8453-30d-10k-`) {
 		t.Fatalf("%d %v", w.Code, w.Header())
 	}
@@ -309,7 +309,8 @@ func TestExport(t *testing.T) {
 	req.Header.Set("Accept-Encoding", "gzip")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != http.StatusInternalServerError || w.Header().Get("Content-Encoding") != "" || w.Header().Get("Content-Disposition") != "" {
+	if w.Code != http.StatusInternalServerError || w.Header().Get("Content-Encoding") != "" || w.Header().Get("Content-Disposition") != "" ||
+		w.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("failed export: %d %v", w.Code, w.Header())
 	}
 	if w := get(t, h, "/api/v1/export.csv?period=1y"); w.Code != http.StatusBadRequest {

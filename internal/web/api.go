@@ -126,6 +126,8 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name + "-" + time.Now().UTC().Format("20060102") + ".csv"}))
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// Caches (Cloudflare keeps .csv files by default) may keep it until the metrics' next refresh.
+	w.Header().Set("Cache-Control", "public, max-age=300")
 	sw := &sentWriter{w: w}
 	var out io.Writer = sw
 	var gz *gzip.Writer
@@ -141,6 +143,7 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 	case err != nil && !sw.sent:
 		w.Header().Del("Content-Encoding")
 		w.Header().Del("Content-Disposition")
+		w.Header().Set("Cache-Control", "no-store")
 		serverError(w, r, err)
 	case err != nil:
 		// Part of the file is out: all that is left is to cut the download short.
