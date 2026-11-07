@@ -79,6 +79,7 @@ func (s *Server) refreshedAt() time.Time { return time.Unix(s.refreshed.Load(), 
 //	GET /api/v1/rounds/{id}                         one round, everything resim needs
 //	GET /static/logos/{id}.png|svg                  the aggregators' logos
 //	GET /static/app.js                              the pages' script
+//	GET /static/favicon.svg                         Nordstern Finance's mark
 //
 // Every request but an export has requestTimeout (guard.go).
 func (s *Server) Handler() http.Handler {

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"crypto/sha256"
 	"embed"
 	"fmt"
 	"html/template"
@@ -40,6 +41,32 @@ func avatar(id, size string) template.HTML {
 	return template.HTML(fmt.Sprintf(`<span class="%s" style="--c: %s">%s</span>`,
 		class, color(id), template.HTMLEscapeString(monogram(id))))
 }
+
+// asset is the URL of a file in static/ with its content's hash: a change
+// reaches browsers and Cloudflare at once, though both keep the file a day.
+func asset(name string) string {
+	if u, ok := assets[name]; ok {
+		return u
+	}
+	panic("no static file " + name)
+}
+
+var assets = func() map[string]string {
+	m := map[string]string{}
+	err := fs.WalkDir(staticFS, "static", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := staticFS.ReadFile(p)
+		sum := sha256.Sum256(b)
+		m[strings.TrimPrefix(p, "static/")] = fmt.Sprintf("/%s?v=%x", p, sum[:6])
+		return err
+	})
+	if err != nil {
+		panic(err)
+	}
+	return m
+}()
 
 // static serves the embedded files under /static/, without directory listings.
 func static() http.Handler {

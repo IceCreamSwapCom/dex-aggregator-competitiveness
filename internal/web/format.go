@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/config"
 )
 
 var funcs = template.FuncMap{
@@ -19,13 +21,27 @@ var funcs = template.FuncMap{
 	"ptr":    func(v float64) *float64 { return &v },
 	"int":    func(v uint64) string { return units(strconv.FormatUint(v, 10), 0) },
 	"avatar": avatar,
+	"name":   name,
 	"menu": func(label string, pills []pill) any {
 		return struct {
 			Label string
 			Pills []pill
 		}{label, pills}
 	},
-	"ago":   ago,
+	"ago":    ago,
+	"tip":    tip,
+	"head":   head,
+	"region": regionName,
+	"asset":  asset,
+	"unix":   func(t time.Time) int64 { return t.Unix() },
+	"bucket": config.BucketValue,
+	"groups": func(name string, rows []namedGroup, charts []chart) any {
+		return struct {
+			Name   string
+			Rows   []namedGroup
+			Charts []chart
+		}{name, rows, charts}
+	},
 	"count": thousands,
 	"accuracy": func(v *float64) string {
 		if v == nil {
@@ -49,6 +65,17 @@ var funcs = template.FuncMap{
 		}
 		return strconv.FormatFloat(*v, 'g', 8, 64)
 	},
+}
+
+// tip is the one way a page explains something: a ? that shows text on hover
+// and focus (app.js).
+func tip(text string) template.HTML {
+	return template.HTML(`<span class="tip" tabindex="0" data-tip="` + template.HTMLEscapeString(text) + `">?</span>`)
+}
+
+// head is the head of a table column: its title, and a tip saying what it means.
+func head(title, help string) template.HTML {
+	return template.HTML(`<span class="h">` + template.HTMLEscapeString(title) + " " + string(tip(help)) + `</span>`)
 }
 
 // ago is how long before now t was, roughly.

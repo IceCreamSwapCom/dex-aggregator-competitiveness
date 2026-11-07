@@ -188,4 +188,5 @@ checking the results, research or running your own copy. Commercial use needs a 
 The aggregators' logos in `internal/web/static/logos` belong to their owners and only name them in the ranking.
 Each comes from the aggregator's own website, cut to a square tile: 0x (0x.org), KyberSwap (kyberswap.com),
 Velora (velora.xyz), Sushi (sushi.com), Fly (fly.trade), LI.FI (li.fi), Enso (enso.build) and Nordstern
-(nordstern.finance). An aggregator without a logo is shown with its initial.
+(nordstern.finance). An aggregator without a logo is shown with its initial. The dashboard's theme, favicon and mark (`static/favicon.svg`)
+follow Nordstern Finance's [brand kit](https://docs.nordstern.finance/brand-kit).

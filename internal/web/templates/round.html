@@ -1,33 +1,34 @@
-{{define "title"}}Round {{.R.ID}}{{end}}
+{{define "title"}}Trade {{.R.ID}}{{end}}
 {{define "content"}}
 <a class="crumb" href="/rounds">← Every trade</a>
-<div class="page-head" style="margin-top:0">
-<h1>{{.Amount}} {{.In}} → {{.Out}}</h1>
-<p>{{.Chain}} · ${{.R.SizeBucket}} trade · {{time .R.StartedAt}} · collector region {{.R.Region}}</p>
-</div>
+<section class="page-head">
+  <span class="eyebrow">Trade</span>
+  <h1>{{.Amount}} {{.In}} → {{.Out}}</h1>
+  <p>{{.Chain}} · ${{.R.SizeBucket}} trade · {{time .R.StartedAt}} · measured from {{region .R.Region}}</p>
+</section>
 
-<div class="card tablecard"><div class="scroll"><table>
+<div class="card tablecard"><div class="scroll"><table data-sortable>
 <thead><tr>
-  <th>Aggregator</th>
-  <th>Quoted</th>
-  <th title="What the taker received at T0, and the difference to the quote in bp">Simulated T0</th>
-  <th title="Gas of the transaction on its own, and its cost in the output token">Gas</th>
-  <th title="Simulated T0 output minus gas cost: what the ranking compares">Net</th>
-  <th title="The same transaction with the same gas limit, 30 s later">Simulated T30</th>
-  <th>Latency</th>
+  <th class="left">Aggregator</th>
+  <th>{{head "Quoted" "The output the aggregator's API promised."}}</th>
+  <th>{{head "Executed at once" "What the wallet received when the transaction was executed at once (T0), and the difference to the quote in bp."}}</th>
+  <th>{{head "Gas" "Gas the transaction used, and what it cost in the output token."}}</th>
+  <th>{{head "Net" "Output executed at once minus the gas cost: what the ranking compares."}}</th>
+  <th>{{head "30 s later" "The same transaction with the same gas limit, executed 30 seconds later (T30), and the difference to the quote in bp."}}</th>
+  <th data-sort="asc">{{head "Latency" "Time from sending the request until the API answered."}}</th>
 </tr></thead>
 <tbody>
 {{range .Quotes}}<tr {{if gt .Score.WinShare 0.0}}class="win"{{end}}>
-  <td><span class="who">{{.Aggregator}}</span>{{if gt .Score.WinShare 0.0}} <span class="chip good">{{if lt .Score.WinShare 1.0}}tied win{{else}}win{{end}}</span>{{end}}</td>
+  <td class="left"><span class="who">{{avatar .Aggregator ""}}{{name .Aggregator}}</span>{{if gt .Score.WinShare 0.0}} <span class="chip good">{{if lt .Score.WinShare 1.0}}tied win{{else}}win{{end}}</span>{{end}}</td>
   {{if eq .Status "ok"}}
     <td>{{.Quoted}}</td>
     {{if .T0}}{{if .T0.Success}}
       <td>{{.T0Out}} <span class="muted">{{bps .T0Delta}}</span></td>
       <td>{{int .T0.Gas}}{{if .GasCost}} <span class="muted">· {{.GasCost}}</span>{{end}}</td>
       <td>{{if .Net}}{{.Net}}{{if .Score.Ranked}}{{if and .Score.Within1 (eq .Score.WinShare 0.0)}} <span class="muted">≤ 1 bp</span>{{else if and .Score.Within5 (eq .Score.WinShare 0.0)}} <span class="muted">≤ 5 bp</span>{{end}}{{end}}{{else}}<span class="muted">–</span>{{end}}</td>
-      <td>{{if .T30}}{{if .T30.Success}}{{.T30Out}} <span class="muted">{{bps .T30Delta}}</span>{{else}}<span class="bad" title="{{.T30.Revert}}">reverted</span>{{end}}{{else}}<span class="muted">–</span>{{end}}</td>
+      <td>{{if .T30}}{{if .T30.Success}}{{.T30Out}} <span class="muted">{{bps .T30Delta}}</span>{{else}}<span class="bad" data-tip="{{.T30.Revert}}">reverted</span>{{end}}{{else}}<span class="muted">–</span>{{end}}</td>
     {{else}}
-      <td class="bad" title="{{.T0.Revert}}">reverted</td><td>{{if .T0.Gas}}{{int .T0.Gas}}{{end}}</td><td class="muted">–</td><td class="muted">–</td>
+      <td class="bad"><span data-tip="{{.T0.Revert}}">reverted</span></td><td>{{if .T0.Gas}}{{int .T0.Gas}}{{end}}</td><td class="muted">–</td><td class="muted">–</td>
     {{end}}{{end}}
   {{else}}
     <td class="left muted" colspan="5">{{.Status}}{{if .Error}}: {{.Error}}{{end}}</td>
@@ -41,7 +42,7 @@
 {{.In}} against the native coin, so its gas cannot be valued in {{.Out}}.{{else if not .Ranked}}This round is not ranked: fewer than two
 quotes succeeded at T0.{{end}}</p>
 
-<section class="section"><div class="section-head"><div><h2>The trade</h2>
+<section class="section"><div class="section-head"><div><h2>Check it</h2>
 <p>Everything needed to check it: re-simulate it with the command below, or fetch it from the API.</p></div></div>
 <div class="card pad"><dl class="facts">
   <dt>Id</dt><dd class="mono">{{.R.ID}}</dd>

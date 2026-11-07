@@ -24,27 +24,53 @@ document.addEventListener("click", function (e) {
 // stays for keyboards. Ctrl, cmd or the middle button open a new tab.
 function rowLink(e) {
   var tr = e.target.closest("tr[data-href]");
-  if (!tr || e.target.closest("a, button, .tip") || (e.type == "auxclick" && e.button != 1) || String(getSelection())) return;
+  if (!tr || e.target.closest("a, button, .tip, [data-tip]") || (e.type == "auxclick" && e.button != 1) || String(getSelection())) return;
   if (e.ctrlKey || e.metaKey || e.button == 1) window.open(tr.dataset.href); else location.href = tr.dataset.href;
 }
 document.addEventListener("click", rowLink);
 document.addEventListener("auxclick", rowLink);
-// Sortable tables: a click on a th with data-sort orders the rows by their cells' data-v.
-document.querySelectorAll("table[data-sortable]").forEach(function (table) {
-  table.querySelectorAll("th[data-sort]").forEach(function (th) {
-    th.addEventListener("click", function (e) {
-      if (e.target.closest(".tip")) return;
-      var i = Array.prototype.indexOf.call(th.parentNode.children, th);
-      var asc = th.getAttribute("aria-sort") === "descending" ? true : th.getAttribute("aria-sort") === "ascending" ? false : th.dataset.sort === "asc";
-      table.querySelectorAll("th[aria-sort]").forEach(function (o) { o.removeAttribute("aria-sort"); });
-      th.setAttribute("aria-sort", asc ? "ascending" : "descending");
-      var body = table.tBodies[0], rows = Array.prototype.slice.call(body.rows);
-      rows.sort(function (a, b) {
-        var x = parseFloat(a.cells[i].dataset.v), y = parseFloat(b.cells[i].dataset.v);
-        if (isNaN(x)) return 1; if (isNaN(y)) return -1;
-        return asc ? x - y : y - x;
+// Sortable tables: every titled column of a table with data-sortable sorts it.
+// A cell sorts by its data-v, else by its number, else by its text; empty ones
+// and "–" last. Numbers start from the largest, text from A, unless the th's
+// data-sort says "asc" or "desc".
+(function () {
+  function key(row, i, n) {
+    if (row.cells.length != n) return null; // a row with merged cells
+    var td = row.cells[i];
+    if (td.hasAttribute("data-v")) return td.dataset.v === "" ? null : parseFloat(td.dataset.v);
+    var t = td.textContent.trim();
+    if (t === "" || t === "–") return null;
+    var num = t.replace(/−/g, "-").replace(/^\$/, "").replace(/,/g, "");
+    return /^[-+]?\d/.test(num) ? parseFloat(num) : t.toLowerCase();
+  }
+  function compare(x, y) {
+    if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+    if (typeof x != typeof y) return typeof x == "number" ? -1 : 1;
+    return typeof x == "number" ? x - y : x.localeCompare(y);
+  }
+  function sort(table, th) {
+    var head = th.parentNode, i = Array.prototype.indexOf.call(head.children, th), n = head.children.length;
+    var body = table.tBodies[0], rows = Array.prototype.slice.call(body.rows);
+    var keys = new Map(rows.map(function (r) { return [r, key(r, i, n)]; }));
+    var first = rows.map(function (r) { return keys.get(r); }).find(function (k) { return k !== null; });
+    var asc = th.getAttribute("aria-sort") == "descending" ? true : th.getAttribute("aria-sort") == "ascending" ? false :
+      th.dataset.sort ? th.dataset.sort == "asc" : typeof first == "string";
+    table.querySelectorAll("th[aria-sort]").forEach(function (o) { o.removeAttribute("aria-sort"); });
+    th.setAttribute("aria-sort", asc ? "ascending" : "descending");
+    rows.sort(function (a, b) {
+      var x = keys.get(a), y = keys.get(b);
+      if (x === null || y === null) return compare(x, y);
+      return asc ? compare(x, y) : compare(y, x);
+    });
+    rows.forEach(function (r) { body.appendChild(r); });
+  }
+  document.querySelectorAll("table[data-sortable]").forEach(function (table) {
+    table.querySelectorAll("thead th:not(:empty)").forEach(function (th) {
+      th.tabIndex = 0;
+      th.addEventListener("click", function (e) { if (!e.target.closest(".tip")) sort(table, th); });
+      th.addEventListener("keydown", function (e) {
+        if ((e.key == "Enter" || e.key == " ") && e.target == th) { e.preventDefault(); sort(table, th); }
       });
-      rows.forEach(function (r) { body.appendChild(r); });
     });
   });
-});
+})();

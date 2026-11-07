@@ -104,7 +104,8 @@ type aggregatorData struct {
 }
 
 type namedGroup struct {
-	Name string
+	Name  string
+	Order float64 // what the first column sorts by; 0 for its name
 	stats.Group
 }
 
@@ -182,7 +183,7 @@ func (s *Server) aggregatorPage(w http.ResponseWriter, r *http.Request) {
 	bySize = slices.Clone(bySize) // the cache's, shared
 	slices.SortFunc(bySize, func(a, b stats.Group) int { return int(config.BucketValue(a.Key) - config.BucketValue(b.Key)) })
 	for _, g := range bySize {
-		d.BySize = append(d.BySize, namedGroup{Name: "$" + g.Key, Group: g})
+		d.BySize = append(d.BySize, namedGroup{Name: "$" + g.Key, Order: float64(config.BucketValue(g.Key)), Group: g})
 	}
 	var total int64
 	for _, c := range statuses {

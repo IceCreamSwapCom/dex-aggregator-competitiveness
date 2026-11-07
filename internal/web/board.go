@@ -42,7 +42,7 @@ var categories = []category{
 			"reverted. Requests answered without a transaction (an error, no route, a timeout) are not counted here; " +
 			"they lose it the trade under best rate.",
 		value: func(r api.LeaderboardRow) *float64 { return r.Reverts }, format: percent},
-	{Title: "Latency", Unit: "median response time", Lower: true,
+	{Title: "Median latency", Unit: "median response time", Lower: true,
 		Help:  "Median time from sending the request to the API until it answered with a quote and its transaction. A timeout counts as 5,000 ms.",
 		value: func(r api.LeaderboardRow) *float64 { v := r.LatencyP50Ms; return &v }, format: millis},
 }
@@ -90,6 +90,18 @@ func color(id string) string {
 	h := fnv.New32a()
 	h.Write([]byte(id))
 	return palette[h.Sum32()%uint32(len(palette))]
+}
+
+// regionNames are where the collectors run, as a reader knows the place. A
+// region without one shows its id.
+var regionNames = map[string]string{"eu-central": "Europe (Helsinki)", "us-east": "US East (Virginia)",
+	"ap-southeast": "Asia (Singapore)"}
+
+func regionName(id string) string {
+	if n, ok := regionNames[id]; ok {
+		return n
+	}
+	return id
 }
 
 // palette is for the aggregators without a color of their own.
@@ -251,7 +263,7 @@ func (s *Server) pills(action string, sel selection, regions []string) (chains, 
 	if len(regions) > 1 {
 		regionPills = append(regionPills, pill{"All regions", link(func(v *selection) { v.Region = "" }), sel.Region == ""})
 		for _, r := range regions {
-			regionPills = append(regionPills, pill{r, link(func(v *selection) { v.Region = r }), sel.Region == r})
+			regionPills = append(regionPills, pill{regionName(r), link(func(v *selection) { v.Region = r }), sel.Region == r})
 		}
 	}
 	return chains, periodPills, sizePills, regionPills

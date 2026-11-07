@@ -350,9 +350,9 @@ func TestAggregatorPage(t *testing.T) {
 	if db.filter.Aggregator != "b" || db.filter.ChainID != 8453 {
 		t.Errorf("filter %+v", db.filter)
 	}
-	// The leaderboard is the nav's current page.
+	// The leaderboard is the nav's current page; every trade is in the nav too.
 	nav := body[strings.Index(body, "<nav>"):strings.Index(body, "</nav>")]
-	if strings.Count(nav, "<a ") != 3 || !strings.Contains(nav, `href="/" class="on"`) {
+	if strings.Count(nav, "<a ") != 4 || !strings.Contains(nav, `href="/" class="on"`) || !strings.Contains(nav, `href="/rounds"`) {
 		t.Errorf("nav = %s", nav)
 	}
 	for _, path := range []string{"/aggregators/nobody", "/aggregators/Bad-Id"} {
@@ -467,7 +467,7 @@ func TestGuards(t *testing.T) {
 		w.Header().Get("X-Frame-Options") != "DENY" {
 		t.Errorf("headers %v", w.Header())
 	}
-	if body := w.Body.String(); strings.Contains(body, "<script>") || !strings.Contains(body, `<script src="/static/app.js"></script>`) {
+	if body := w.Body.String(); strings.Contains(body, "<script>") || !strings.Contains(body, `<script src="`+asset("app.js")+`"></script>`) {
 		t.Error("the page has inline script")
 	}
 	if w := get(t, h, "/static/app.js"); w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/javascript") {
@@ -487,5 +487,31 @@ func TestCacheWorkers(t *testing.T) {
 	ran := false
 	if _, err := cached(ctx, c, "k", func() (int, error) { ran = true; return 1, nil }); !errors.Is(err, context.DeadlineExceeded) || ran {
 		t.Errorf("err %v, ran %v", err, ran)
+	}
+}
+
+// TestConsistent checks what every page shares: one kind of tooltip, tables
+// that sort, the favicon, and assets whose URL changes with their content.
+func TestConsistent(t *testing.T) {
+	s, _ := server(t)
+	h := s.Handler()
+	for _, path := range []string{"/", "/aggregators/b?chain=8453&period=24h", "/rounds", "/rounds/" + id, "/methodology"} {
+		w := get(t, h, path)
+		body := w.Body.String()
+		if w.Code != http.StatusOK || strings.Contains(body, " title=") || !strings.Contains(body, `<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=`) {
+			t.Errorf("%s: %d, a title tooltip or no favicon", path, w.Code)
+		}
+		if n, sortable := strings.Count(body, "<table"), strings.Count(body, "<table data-sortable>")+strings.Count(body, `<table class="lb" data-sortable>`); n != sortable {
+			t.Errorf("%s: %d of %d tables sort", path, sortable, n)
+		}
+	}
+	if w := get(t, h, asset("favicon.svg")); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/svg+xml" {
+		t.Errorf("favicon: %d", w.Code)
+	}
+	if a := asset("app.js"); !strings.HasPrefix(a, "/static/app.js?v=") || len(a) != len("/static/app.js?v=")+12 {
+		t.Errorf("asset = %s", a)
+	}
+	if regionName("eu-central") != "Europe (Helsinki)" || regionName("local") != "local" {
+		t.Error("region names")
 	}
 }
