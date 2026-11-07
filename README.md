@@ -107,20 +107,21 @@ same way the collector ran it. Exit status: 0 if everything matches, 1 if someth
 
 1. Pick a chain, then a pair and a size bucket, at random by the config's weights (their share of real
    volume), and a direction. Jitter the amount by ×[0.8, 1.25] and draw a fresh random taker address.
-2. Pin T0 with one `eth_feeHistory` call: the latest block and its gas price (base fee + median tip of the last
-   20 blocks).
+2. Pin T0: the latest block and its gas price (base fee + median tip of the last 20 blocks) with one
+   `eth_feeHistory` call, and the block's timestamp.
 3. Ask every aggregator at once, with the same request and a 5 s timeout. Every aggregator is asked on every
    chain; one that does not serve the chain fails, and that counts against it.
-4. Simulate every usable answer at T0:
+4. Simulate every usable answer at T0, as the first transaction of the next block (block number + 1, timestamp +
+   the chain's `blockTime`):
    1. a probe at the chain's per-transaction gas cap gives the gas the swap uses;
    2. the measured run uses a wallet-like gas limit of 1.5× that;
-5. 30 s after T0, pin T30 and simulate the same transactions with the same gas limits.
+5. 30 s after T0, pin T30 and simulate the same transactions with the same gas limits, again in the next block.
 6. Write the round in one transaction.
 
 If an RPC or slots API call fails, the whole round is dropped: our failures never count against an aggregator.
 
-A round makes 3 + 3N RPC calls for N usable quotes (18 for 5 aggregators):
-- two pins;
+A round makes 5 + 3N RPC calls for N usable quotes (20 for 5 aggregators):
+- two pins, each a fee history and the block's timestamp;
 - one balance read of the output token (none for native output);
 - per quote: a probe, the measured run and the T30 run.
 

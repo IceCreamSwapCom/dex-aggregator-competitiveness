@@ -47,7 +47,7 @@ func TestParseUnits(t *testing.T) {
 
 func TestRefusals(t *testing.T) {
 	const valid = `{"methodologyVersion":"1","roundsPerMinute":1,"quoteTimeout":"5s","staleDelay":"30s","gasLimitMultiplier":1.5,
-		"slippageBps":{"default":50,"stable":10},"aggregators":["x"],"chains":[{"id":1,"name":"Ethereum","maxTxGas":16777216,"weight":1,
+		"slippageBps":{"default":50,"stable":10},"aggregators":["x"],"chains":[{"id":1,"name":"Ethereum","maxTxGas":16777216,"blockTime":"2s","weight":1,
 		"tokens":{"ETH":{"address":"0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE","decimals":18,"sizes":{"1k":"0.3"}},
 		          "USDC":{"address":"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48","decimals":6,"sizes":{"1k":"1000"}}},
 		"pairs":[{"a":"ETH","b":"USDC","sizes":{"1k":1}}]}]}`
@@ -63,6 +63,7 @@ func TestRefusals(t *testing.T) {
 		"no native pair":      {`"address":"0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"`, `"address":"0xdac17f958d2ee523a2206206994597c13d831ec7"`},
 		"token in no pair":    {`"USDC":{`, `"DAI":{"address":"0x6b175474e89094c44da98b954eedeac495271d0f","decimals":18,"sizes":{"1k":"1000"}},"USDC":{`},
 		"chain without gas":   {`"maxTxGas":16777216`, `"maxTxGas":0`},
+		"no block time":       {`"blockTime":"2s"`, `"blockTime":"0s"`},
 		"address is not hex":  {`0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48`, `0xa0b86991c6218b36c1d19d4a2e9eb0ce3606ebzz`},
 		"no aggregators":      {`"aggregators":["x"]`, `"aggregators":[]`},
 		"zero chain weight":   {`"weight":1`, `"weight":0`},

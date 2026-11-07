@@ -237,8 +237,8 @@ func format(cfg *config.Config, chains []config.Chain) ([]byte, error) {
 		if i == len(chains)-1 {
 			sep = ""
 		}
-		fmt.Fprintf(&b, "    {\n      \"id\": %d,\n      \"name\": %q,\n      \"maxTxGas\": %d,\n      \"weight\": %d,\n      \"defillama\": %q,\n",
-			ch.ID, ch.Name, ch.MaxTxGas, ch.Weight, ch.DefiLlama)
+		fmt.Fprintf(&b, "    {\n      \"id\": %d,\n      \"name\": %q,\n      \"maxTxGas\": %d,\n      \"blockTime\": %q,\n      \"weight\": %d,\n      \"defillama\": %q,\n",
+			ch.ID, ch.Name, ch.MaxTxGas, ch.BlockTime.String(), ch.Weight, ch.DefiLlama)
 		d := ch.Derived
 		anchors, _ := json.Marshal(d.Anchors)
 		fmt.Fprintf(&b, "      \"derived\": { \"fromBlock\": %d, \"toBlock\": %d, \"trades\": %d, \"anchors\": %s, \"defillamaVolume30d\": %d },\n",

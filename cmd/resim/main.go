@@ -132,6 +132,15 @@ func resimulate(ctx context.Context, out io.Writer, cfg *config.Config, rd *api.
 	}
 	b0 := sim.Block{Number: rd.T0Block, GasPrice: price0}
 	b30 := sim.Block{Number: rd.T30Block, GasPrice: price30}
+	if !inOwnBlock[rd.MethodologyVersion] { // in the next block: its timestamp follows from the pinned block's
+		var err error
+		if b0.Time, err = s.Timestamp(ctx, b0.Number); err != nil {
+			return 0, err
+		}
+		if b30.Time, err = s.Timestamp(ctx, b30.Number); err != nil {
+			return 0, err
+		}
+	}
 	printf := func(format string, a ...any) { _, _ = fmt.Fprintf(out, format, a...) }
 
 	printf("round %s: chain %d, %s %s → %s, T0 block %d, T30 block %d\n",
@@ -182,6 +191,10 @@ func resimulate(ctx context.Context, out io.Writer, cfg *config.Config, rd *api.
 	}
 	return diffs, nil
 }
+
+// inOwnBlock are the methodology versions that simulated a swap in its pinned
+// block itself; later ones simulate it in the next block (METHODOLOGY.md, 2.2).
+var inOwnBlock = map[string]bool{"0.1": true, "0.2": true}
 
 // stored is a result as the collector stores it.
 func stored(r sim.Result) api.Simulation {

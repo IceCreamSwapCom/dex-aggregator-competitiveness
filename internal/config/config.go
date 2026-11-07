@@ -41,6 +41,7 @@ type Chain struct {
 	ID        uint64           `json:"id"`
 	Name      string           `json:"name"`
 	MaxTxGas  uint64           `json:"maxTxGas"`  // the most gas one transaction may use
+	BlockTime Duration         `json:"blockTime"` // the time between two blocks; a swap is simulated that much after its block
 	Weight    int              `json:"weight"`    // a round is on this chain with probability weight / sum of all chains' weights
 	DefiLlama string           `json:"defillama"` // the chain's name in DefiLlama's aggregator volumes, for cmd/distribution
 	Derived   *Derived         `json:"derived,omitempty"`
@@ -193,6 +194,8 @@ func (ch Chain) check() error {
 		return errors.New("id and name are required")
 	case ch.MaxTxGas < 21_000:
 		return errors.New("maxTxGas is missing")
+	case ch.BlockTime.Duration <= 0:
+		return errors.New("blockTime must be positive")
 	case ch.Weight <= 0:
 		return errors.New("weight must be positive")
 	case len(ch.Pairs) == 0:

@@ -17,8 +17,9 @@
       <p>Every aggregator is asked at the same moment, with the same slippage (0.5%, 0.1% between stablecoins), no
       integrator fee and a fresh wallet. Each has 5 seconds to answer.</p></li>
     <li><h3>Executed at once</h3>
-      <p>Each returned transaction is simulated at the block it was quoted at, with real balances, approval, gas
-      price and gas limit. What counts is how much the wallet received.</p></li>
+      <p>Each returned transaction is simulated as the first in the next block, where it would land if sent the
+      moment it was quoted, with real balances, approval, gas price and gas limit. What counts is how much the wallet
+      received.</p></li>
     <li><h3>Executed 30 s later</h3>
       <p>Each transaction that succeeded is simulated again 30 seconds later, about when a user would have signed
       it in their wallet.</p></li>
@@ -77,7 +78,8 @@
 <section>
   <h2>Known limits</h2>
   <ul class="limits">
-    <li>Effects of a transaction's position in a block cannot be simulated; the run 30 seconds later is the backstop.</li>
+    <li>Each transaction is simulated as the first in its block; what others ahead of it would do cannot be. The run
+      30 seconds later is the backstop.</li>
     <li>On rollups, the fee for posting data to Ethereum is not counted. Since 2024 it is far below 1 bp.</li>
     <li>During the simulation the wallet is a contract, as many wallets are today (EIP-7702).</li>
   </ul>

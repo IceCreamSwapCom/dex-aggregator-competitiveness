@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/config"
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/rpc"
@@ -57,7 +58,7 @@ func proxyReturn(success bool, amountOut, gasUsed int64, returnData []byte) stri
 	return "0x" + hex.EncodeToString(b)
 }
 
-var base = config.Chain{ID: 8453, MaxTxGas: 16_777_216}
+var base = config.Chain{ID: 8453, MaxTxGas: 16_777_216, BlockTime: config.Duration{Duration: 2 * time.Second}}
 
 const (
 	taker = "0xAbCd000000000000000000000000000000000001"
@@ -114,8 +115,8 @@ func TestRunERC20(t *testing.T) {
 	if call["data"] != wantData {
 		t.Errorf("data = %s\nwant   %s", call["data"], wantData)
 	}
-	if blockParam != "0x100" {
-		t.Errorf("block = %s", blockParam)
+	if blockParam != "0x100" || len(params) != 3 {
+		t.Errorf("block = %s, %d params: a block without its time is simulated in itself", blockParam, len(params))
 	}
 	takerOv := overrides[strings.ToLower(taker)]
 	if takerOv["code"] != proxyCode || takerOv["balance"] != hexBig(big.NewInt(callGas*1500)) {
@@ -229,12 +230,13 @@ func TestPin(t *testing.T) {
 				"reward":        [][]string{{"0x5"}, {"0x1"}, {"0x64"}, {"0x2"}, {"0x3"}},
 			}, nil
 		},
+		"eth_getBlockByNumber": header,
 	})
 	b, err := New(node, base, 1.5).Pin(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || b.Number != 42 || b.BaseFee.Int64() != 1000 || b.GasPrice.Int64() != 1003 { // median tip of 1, 2, 3, 5, 100
+	if calls != 1 || b.Number != 42 || b.Time != 0x6900 || b.BaseFee.Int64() != 1000 || b.GasPrice.Int64() != 1003 { // median tip of 1, 2, 3, 5, 100
 		t.Errorf("%d calls, block = %+v", calls, b)
 	}
 }
@@ -245,10 +247,53 @@ func TestPinLegacyChain(t *testing.T) {
 		"eth_feeHistory": func([]json.RawMessage) (any, *rpc.Error) {
 			return map[string]any{"oldestBlock": "0x2a", "gasUsedRatio": []float64{0.5}, "reward": [][]string{{"0x77"}}}, nil
 		},
+		"eth_getBlockByNumber": header,
 	})
 	b, err := New(node, base, 1.5).Pin(context.Background())
 	if err != nil || b.Number != 42 || b.BaseFee.Sign() != 0 || b.GasPrice.Int64() != 0x77 {
 		t.Errorf("block = %+v, %v", b, err)
+	}
+}
+
+// header answers eth_getBlockByNumber for block 42 (0x2a), at time 0x6900.
+func header(p []json.RawMessage) (any, *rpc.Error) {
+	var n string
+	if err := json.Unmarshal(p[0], &n); err != nil || n != "0x2a" {
+		return nil, &rpc.Error{Code: -32000, Message: "header not found"}
+	}
+	return map[string]string{"number": "0x2a", "timestamp": "0x6900"}, nil
+}
+
+// A swap runs in the block after the pinned one: its number + 1, its time + the
+// block time.
+func TestRunNextBlock(t *testing.T) {
+	var next map[string]string
+	node := fakeNode(t, map[string]func([]json.RawMessage) (any, *rpc.Error){
+		"eth_call": func(p []json.RawMessage) (any, *rpc.Error) {
+			if len(p) != 4 || json.Unmarshal(p[3], &next) != nil {
+				return nil, &rpc.Error{Code: -32602, Message: "no block overrides"}
+			}
+			return proxyReturn(true, 990, 150_000, nil), nil
+		},
+	})
+	b := block
+	b.Time = 0x6900
+	if _, err := New(node, base, 1.5).Run(context.Background(), b, erc20Swap(), 300_000); err != nil {
+		t.Fatal(err)
+	}
+	if len(next) != 2 || next["number"] != "0x101" || next["time"] != "0x6902" {
+		t.Errorf("block overrides = %v", next)
+	}
+}
+
+func TestNextBlockSeconds(t *testing.T) {
+	for _, tc := range []struct {
+		blockTime time.Duration
+		want      uint64
+	}{{12 * time.Second, 12}, {1500 * time.Millisecond, 2}, {time.Second, 1}, {200 * time.Millisecond, 1}} {
+		if got := nextBlockSeconds(tc.blockTime); got != tc.want {
+			t.Errorf("nextBlockSeconds(%v) = %d, want %d", tc.blockTime, got, tc.want)
+		}
 	}
 }
 

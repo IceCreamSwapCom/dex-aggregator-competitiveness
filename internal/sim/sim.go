@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/config"
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/rpc"
@@ -37,15 +38,30 @@ type Simulator struct {
 	chainID            uint64
 	maxTxGas           uint64
 	gasLimitMultiplier float64
+	nextBlockSeconds   uint64 // the next block's timestamp is this much after its parent's
 }
 
 func New(c *rpc.Client, ch config.Chain, gasLimitMultiplier float64) *Simulator {
-	return &Simulator{rpc: c, chainID: ch.ID, maxTxGas: ch.MaxTxGas, gasLimitMultiplier: gasLimitMultiplier}
+	return &Simulator{rpc: c, chainID: ch.ID, maxTxGas: ch.MaxTxGas, gasLimitMultiplier: gasLimitMultiplier,
+		nextBlockSeconds: nextBlockSeconds(ch.BlockTime.Duration)}
+}
+
+// nextBlockSeconds is the chain's block time in whole seconds, rounded up:
+// block timestamps count seconds, and the next block is never earlier.
+func nextBlockSeconds(blockTime time.Duration) uint64 {
+	return max(1, uint64(math.Ceil(blockTime.Seconds())))
 }
 
 // Block is a pinned block and the gas price transactions are simulated with there.
+//
+// A swap is simulated as the first transaction of the next block, where a
+// transaction sent now lands: on the state after block Number, with
+// block.number Number+1 and block.timestamp Time plus the chain's block time.
+// With Time 0 it is simulated in block Number itself, as rounds of
+// methodology 0.1 and 0.2 were.
 type Block struct {
 	Number   uint64
+	Time     uint64   // block Number's timestamp
 	BaseFee  *big.Int // 0 on a chain without EIP-1559
 	GasPrice *big.Int
 }
@@ -61,7 +77,8 @@ func (s *Simulator) Pin(ctx context.Context) (Block, error) {
 		GasUsedRatio []float64  `json:"gasUsedRatio"`  // one per block
 		Reward       [][]string `json:"reward"`
 	}
-	if err := s.rpc.Call(ctx, &history, "eth_feeHistory", hexBig(big.NewInt(tipBlocks)), "latest", []int{50}); err != nil {
+	err := s.rpc.Call(ctx, &history, "eth_feeHistory", hexBig(big.NewInt(tipBlocks)), "latest", []int{50})
+	if err != nil {
 		return Block{}, err
 	}
 	blocks := len(history.GasUsedRatio)
@@ -88,7 +105,38 @@ func (s *Simulator) Pin(ctx context.Context) (Block, error) {
 	}
 	slices.SortFunc(tips, func(x, y *big.Int) int { return x.Cmp(y) })
 	b.GasPrice = new(big.Int).Add(b.BaseFee, tips[len(tips)/2])
+	if b.Time, err = s.Timestamp(ctx, b.Number); err != nil {
+		return Block{}, err
+	}
 	return b, nil
+}
+
+// Timestamp is block n's timestamp.
+func (s *Simulator) Timestamp(ctx context.Context, n uint64) (uint64, error) {
+	var header struct {
+		Timestamp string `json:"timestamp"`
+	}
+	if err := s.rpc.Call(ctx, &header, "eth_getBlockByNumber", hexBig(new(big.Int).SetUint64(n)), false); err != nil {
+		return 0, fmt.Errorf("block %d: %w", n, err)
+	}
+	t, ok := parseHexBig(header.Timestamp)
+	if !ok || !t.IsUint64() || t.Sign() == 0 {
+		return 0, fmt.Errorf("block %d has timestamp %q", n, header.Timestamp)
+	}
+	return t.Uint64(), nil
+}
+
+// call is an eth_call at block b with the state overrides, in the next block
+// unless b.Time is 0.
+func (s *Simulator) call(ctx context.Context, out any, call map[string]any, b Block, overrides map[string]any) error {
+	params := []any{call, hexBig(new(big.Int).SetUint64(b.Number)), overrides}
+	if b.Time != 0 {
+		params = append(params, map[string]string{
+			"number": hexBig(new(big.Int).SetUint64(b.Number + 1)),
+			"time":   hexBig(new(big.Int).SetUint64(b.Time + s.nextBlockSeconds)),
+		})
+	}
+	return s.rpc.Call(ctx, out, "eth_call", params...)
 }
 
 // Swap is an aggregator's transaction and what the taker sells with it.
@@ -168,7 +216,7 @@ func (s *Simulator) Run(ctx context.Context, b Block, sw Swap, gasLimit uint64) 
 	}
 
 	var out string
-	if err := s.rpc.Call(ctx, &out, "eth_call", call, hexBig(new(big.Int).SetUint64(b.Number)), overrides); err != nil {
+	if err := s.call(ctx, &out, call, b, overrides); err != nil {
 		if msg, ok := executionFailed(err); ok {
 			return Result{Revert: msg}, nil
 		}
@@ -256,7 +304,7 @@ func executionFailed(err error) (string, bool) {
 }
 
 // CheckNode makes sure the RPC serves the configured chain and applies state
-// overrides, without which no simulation measures anything.
+// and block overrides, without which no simulation measures anything.
 func (s *Simulator) CheckNode(ctx context.Context) error {
 	var id string
 	if err := s.rpc.Call(ctx, &id, "eth_chainId"); err != nil {
@@ -281,7 +329,21 @@ func (s *Simulator) CheckNode(ctx context.Context) error {
 	if !r.Success {
 		return fmt.Errorf("a test simulation failed: %s", r.Revert)
 	}
+	// A contract that returns block.timestamp sees the next block's.
+	// (block.number cannot be checked: on Arbitrum it is Ethereum's.)
+	const clock = "0x00000000000000000000000000000000000b0b03"
+	var out string
+	err = s.call(ctx, &out, map[string]any{"to": clock, "data": "0x"}, b, map[string]any{clock: map[string]any{"code": timestampCode}})
+	if err != nil {
+		return fmt.Errorf("a call with block overrides: %w", err)
+	}
+	if t, ok := parseHexBig(out); !ok || t.Cmp(new(big.Int).SetUint64(b.Time+s.nextBlockSeconds)) != 0 {
+		return fmt.Errorf("the RPC ignores block overrides: block.timestamp is %s, not %d", out, b.Time+s.nextBlockSeconds)
+	}
 	return nil
 }
+
+// timestampCode returns block.timestamp: TIMESTAMP PUSH1 0 MSTORE PUSH1 32 PUSH1 0 RETURN.
+const timestampCode = "0x4260005260206000f3"
 
 func isNative(token string) bool { return strings.EqualFold(token, config.NativeToken) }

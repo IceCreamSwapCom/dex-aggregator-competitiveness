@@ -1,6 +1,6 @@
 # Methodology
 
-Version 0.2. Every stored round carries the methodology version it was measured under. A change to any rule
+Version 0.3. Every stored round carries the methodology version it was measured under. A change to any rule
 below gets a new version and a changelog entry, so data measured under different rules is never mixed silently.
 The parameters of the rules (chains, pairs, sizes and their weights, timeouts, slippage, the gas limit
 multiplier) are in `config/benchmark.json`.
@@ -136,7 +136,12 @@ therefore sees `msg.sender == tx.origin == taker`, as with a real wallet.
   rebasing tokens show up as what a user really receives.
 - For an ERC-20 output, the balance before the swap is read with a separate `eth_call` at the same block. Reading
   it inside the proxy would warm the token's storage and make the swap cheaper than a real transaction.
-- Block number, timestamp and coinbase are what the node uses for the block. There are no block overrides.
+- **Block:** a transaction is simulated as the first one of the block after the pinned one, where a large
+  transaction sent at that moment lands: on the state after the pinned block, with block override
+  `number` = pinned + 1 and `time` = the pinned block's timestamp + the chain's block time (`blockTime` in the
+  config), rounded up to a whole second, since block timestamps count seconds. A plain `eth_call` would run
+  inside the pinned block, which has already been built. On Arbitrum and Robinhood, `block.number` is Ethereum's
+  by design, so only the timestamp moves there. The coinbase is the node's.
 
 ### 2.3 Gas price and gas limit
 
@@ -157,14 +162,15 @@ node: a USDC transfer through the proxy measures 62,240 gas, against the node's 
 
 ### 2.4 T0 and T30
 
-- **T0:** every `ok` transaction, at the block the aggregators were asked at.
+- **T0:** every `ok` transaction, in the block after the one the aggregators were asked at.
 - **T30:** every transaction that succeeded at T0, again: the same transaction with the same gas limit, at the
-  latest block 30 s after T0, as if the user had signed it at T0 and it landed 30 s later. All T30 simulations of
-  a round run at the same block.
+  block after the latest one 30 s after T0, as if the user had signed it at T0 and it landed 30 s later. All T30
+  simulations of a round run in the same block.
 
 ### 2.5 Known limitations
 
-- What depends on the block builder or the position in a block cannot be simulated. T30 is the backstop.
+- Every transaction is simulated as the first in its block. What other transactions ahead of it in the block
+  would do, and what depends on the block builder, cannot be simulated. T30 is the backstop.
 - Rollup L1 data fees are not counted. Since blobs (EIP-4844) they are far below 1 bp: measured on Base, a 2 KB
   swap's L1 fee was about 4% of its L2 gas cost. The calldata's L2 gas is counted.
 - The taker is a contract during the simulation. Wallets with code (EIP-7702) are common, so a router cannot
@@ -240,6 +246,11 @@ aggregator and the token slots API. Nordstern's adapter follows the same rules a
 storage slots are the same for every aggregator, so the slots API cannot favor one.
 
 ## Changelog
+
+### 0.3 (2026-11-07)
+
+- Transactions are simulated in the block after the pinned one (block number + 1, timestamp + the chain's block
+  time), where they would really land, instead of inside the pinned block (section 2.2).
 
 ### 0.2 (2026-11-04)
 

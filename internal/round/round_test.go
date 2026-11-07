@@ -52,7 +52,7 @@ func swapQuote(req aggregator.Request) *aggregator.Quote {
 type node struct {
 	mu      sync.Mutex
 	pins    int
-	calls   []map[string]any // swap eth_calls: gas and block
+	calls   []map[string]any // swap eth_calls: gas, block and block overrides
 	methods map[string]int   // every call by kind, to hold the RPC budget
 	fail    string           // method that answers with an error the node, not the swap, caused
 }
@@ -79,17 +79,25 @@ func (n *node) serve(t *testing.T) *rpc.Client {
 			n.pins++
 			resp["result"] = map[string]any{"oldestBlock": "0x" + strconv.Itoa(n.pins*10), "baseFeePerGas": []string{"0x64", "0x64"},
 				"gasUsedRatio": []float64{0.5}, "reward": [][]string{{"0x2"}}}
+		case "eth_getBlockByNumber": // block 0x10 at 0x1000 s, 0x20 at 0x2000 s
+			var block string
+			_ = json.Unmarshal(req.Params[0], &block)
+			resp["result"] = map[string]string{"timestamp": strings.TrimSuffix(block, "0") + "000"}
 		case "eth_call":
 			var call map[string]string
 			var block string
+			var next map[string]string
 			_ = json.Unmarshal(req.Params[0], &call)
 			_ = json.Unmarshal(req.Params[1], &block)
+			if len(req.Params) > 3 {
+				_ = json.Unmarshal(req.Params[3], &next)
+			}
 			if strings.HasPrefix(call["data"], "0x70a08231") { // the taker's balance before a swap
 				n.methods["balanceOf"]++
 				resp["result"] = "0x" + hex.EncodeToString(make([]byte, 32))
 				break
 			}
-			n.calls = append(n.calls, map[string]any{"gas": call["gas"], "block": block})
+			n.calls = append(n.calls, map[string]any{"gas": call["gas"], "block": block, "next": next["number"] + "@" + next["time"]})
 			resp["result"] = proxyReturn(block == "0x10", 990, 120_000)
 		}
 		_ = json.NewEncoder(w).Encode(resp)
@@ -111,7 +119,7 @@ func runner(t *testing.T, n *node, aggs ...aggregator.Aggregator) *Runner {
 	t.Helper()
 	cfg, err := config.Parse([]byte(`{"methodologyVersion":"test","roundsPerMinute":1,"quoteTimeout":"200ms","staleDelay":"50ms",
 		"gasLimitMultiplier":1.5,"slippageBps":{"default":50,"stable":10},"integratorId":"dexbench","aggregators":["x"],
-		"chains":[{"id":8453,"name":"Base","maxTxGas":16777216,"weight":1,
+		"chains":[{"id":8453,"name":"Base","maxTxGas":16777216,"blockTime":"2s","weight":1,
 		"tokens":{"ETH":{"address":"0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE","decimals":18,"sizes":{"1k":"0.3"}},
 		          "USDC":{"address":"` + usdc + `","decimals":6,"stable":true,"sizes":{"1k":"1000"}}},
 		"pairs":[{"a":"ETH","b":"USDC","sizes":{"1k":1}}]}]}`))
@@ -203,15 +211,19 @@ func TestRound(t *testing.T) {
 		n.calls[0]["gas"] != "0x1000000" || n.calls[1]["gas"] != n.calls[2]["gas"] {
 		t.Errorf("simulations = %v", n.calls)
 	}
+	// Each in the block after its pinned one, 2 s (the block time) after it.
+	if n.calls[0]["next"] != "0x11@0x1002" || n.calls[1]["next"] != "0x11@0x1002" || n.calls[2]["next"] != "0x21@0x2002" {
+		t.Errorf("block overrides = %v", n.calls)
+	}
 	for _, q := range rd.Quotes[1:] {
 		if q.T0 != nil || q.T30 != nil {
 			t.Errorf("%s was simulated", q.Aggregator)
 		}
 	}
 
-	// The RPC budget of a round: one pin per block, the output balance once, and per
-	// usable quote a probe, the measured run and the T30 run.
-	want := map[string]int{"eth_feeHistory": 2, "eth_call": 3}
+	// The RPC budget of a round: a pin and the block's timestamp per block, the output
+	// balance once, and per usable quote a probe, the measured run and the T30 run.
+	want := map[string]int{"eth_feeHistory": 2, "eth_getBlockByNumber": 2, "eth_call": 3}
 	if !aggregator.IsNative(rd.TokenOut) {
 		want["eth_call"], want["balanceOf"] = 4, 1 // balanceOf is one of the eth_calls
 	}
@@ -222,7 +234,7 @@ func TestRound(t *testing.T) {
 
 func TestNodeFailureDropsRound(t *testing.T) {
 	ok := fakeAgg{id: "good", quote: func(_ context.Context, req aggregator.Request) (*aggregator.Quote, error) { return swapQuote(req), nil }}
-	for _, method := range []string{"eth_feeHistory", "eth_call"} {
+	for _, method := range []string{"eth_feeHistory", "eth_getBlockByNumber", "eth_call"} {
 		if _, err := runner(t, &node{fail: method}, ok).Run(context.Background()); err == nil {
 			t.Errorf("%s failing: the round was not dropped", method)
 		}
