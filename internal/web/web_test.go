@@ -150,10 +150,10 @@ func TestLeaderboardPage(t *testing.T) {
 	}
 
 	// Who built it: said in the head, above the leaderboard; the Nordstern box once, below it.
-	if body := w.Body.String(); strings.Index(body, "Built by the team behind Nordstern, which is ranked") < 0 ||
-		strings.Index(body, "Built by the team behind Nordstern, which is ranked") > strings.Index(body, "<h2>Leaderboard</h2>") ||
+	if body, board := w.Body.String(), strings.Index(w.Body.String(), "<h2>Leaderboard</h2>"); !strings.Contains(body, "Built by the team behind Nordstern, which is ranked") ||
+		strings.Index(body, "Built by the team behind Nordstern, which is ranked") > board ||
 		strings.Count(body, "<b>Built by the team behind Nordstern</b>") != 1 ||
-		strings.Index(body, "<b>Built by the team behind Nordstern</b>") < strings.Index(body, "<h2>Leaderboard</h2>") {
+		strings.Index(body, "<b>Built by the team behind Nordstern</b>") < board {
 		t.Error("the leaderboard does not say who built it above, with the Nordstern box below")
 	}
 
