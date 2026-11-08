@@ -148,6 +148,12 @@ table[data-sortable] th[aria-sort="ascending"]::after { content: "↑"; }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
 tr[data-href] { cursor: pointer; }
+/* the last cell of a clickable row says where it leads */
+th.go, td.go { width: 1%; padding-left: 4px; }
+.details { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 500; color: var(--muted);
+  padding: 5px 11px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); white-space: nowrap; }
+tr[data-href]:hover .details, .details:hover, .details:focus-visible { color: var(--text); border-color: var(--accent); text-decoration: none; }
+@media (max-width: 600px) { .details span { display: none; } .details { padding: 4px 9px; } }
 th:first-child, td:first-child, .left { text-align: left; }
 td b { font-weight: 600; }
 .inbar { display: inline-flex; align-items: center; gap: 10px; }
@@ -192,6 +198,15 @@ table.lb tbody tr:hover td:nth-child(2) { background: color-mix(in srgb, var(--s
 .bars .next .who, .bars .next .val { color: inherit; }
 .rank { display: inline-block; min-width: 18px; color: var(--faint); font-size: 12px; font-weight: 500; text-align: right; }
 
+/* The leaderboard's head: why the ranking can be trusted */
+.proof { list-style: none; padding: 0; margin: 20px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.proof a { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px 7px 8px; border-radius: 999px; font-size: 14px; font-weight: 500;
+  color: var(--text); background: var(--surface); border: 1px solid var(--line); transition: border-color .15s; }
+.proof a::before { content: "✓"; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--good-bg); color: var(--good); font-size: 11px; font-weight: 600; }
+.proof a:hover { text-decoration: none; border-color: var(--accent); }
+@media (max-width: 600px) { .proof { gap: 6px; } .proof a { font-size: 13px; padding: 5px 11px 5px 6px; } }
+
 /* Who built it */
 .ours { position: relative; display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; margin-top: 48px; padding: 14px 18px;
   border-radius: var(--radius); border: 1px solid transparent;
@@ -202,7 +217,6 @@ table.lb tbody tr:hover td:nth-child(2) { background: color-mix(in srgb, var(--s
 .ours b { font-size: 14px; font-weight: 600; }
 .ours p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
 .ours .btn { padding: 8px 14px; font-size: 13px; }
-.page-head + .ours { margin: 0 0 16px; }
 @media (max-width: 600px) { .ours { flex-wrap: nowrap; padding: 10px 12px; gap: 10px; } .ours > div { min-width: 0; } .ours p { display: none; }
   .ours b { font-size: 13px; } .ours .btn { padding: 6px 10px; font-size: 12px; } }
 
@@ -283,14 +297,14 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); bor
 </div></header>
 <main><div class="wrap">
 {{template "content" .Data}}
-{{if ne .Page "leaderboard"}}{{template "ours"}}{{end}}
+{{template "ours"}}
 </div></main>
 <div id="tipbox" role="tooltip"></div>
 <script src="{{asset "app.js"}}"></script>
 </body>
 </html>{{end}}
 
-{{/* who built the benchmark: above the leaderboard, under every other page */}}
+{{/* who built the benchmark: under every page; the leaderboard's head says it first */}}
 {{define "ours"}}
 <aside class="ours">
   {{avatar "nordstern" ""}}

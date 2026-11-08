@@ -41,7 +41,7 @@
   <div class="section-head"><div><h2>Latest trades</h2><p>Each one opens with every aggregator's quote, transaction and simulation.</p></div>
     <a href="/rounds">All trades →</a></div>
   <div class="card tablecard"><div class="scroll"><table data-sortable>
-  <thead><tr><th class="left">Time</th><th class="left">Chain</th><th>Sells</th><th class="left">For</th><th>Size</th><th class="left">Result</th></tr></thead>
+  <thead><tr><th class="left">Time</th><th class="left">Chain</th><th>Sells</th><th class="left">For</th><th>Size</th><th class="left">Result</th><th class="go"></th></tr></thead>
   <tbody>{{range .Quotes}}<tr data-href="/rounds/{{.RoundID}}">
     <td class="left" data-v="{{unix .StartedAt}}"><a href="/rounds/{{.RoundID}}" data-tip="{{time .StartedAt}}">{{ago .StartedAt}}</a></td>
     <td class="left">{{.Chain}}</td>
@@ -49,6 +49,7 @@
     <td class="left">{{.Out}}</td>
     <td data-v="{{bucket .SizeBucket}}">${{.SizeBucket}}</td>
     <td class="left"><span class="chip {{.Class}}">{{.Result}}</span></td>
+    <td class="go"><a class="details" href="/rounds/{{.RoundID}}"><span>Details</span> →</a></td>
   </tr>{{end}}</tbody>
   </table></div></div>
 </section>

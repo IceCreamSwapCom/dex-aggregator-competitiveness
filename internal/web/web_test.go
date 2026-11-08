@@ -149,10 +149,12 @@ func TestLeaderboardPage(t *testing.T) {
 		t.Fatalf("all chains: %d, filter %+v", w.Code, db.filter)
 	}
 
-	// Who built it, above the leaderboard, once.
-	if body := w.Body.String(); strings.Count(body, "Built by the team behind Nordstern") != 1 ||
-		strings.Index(body, "Built by the team behind Nordstern") > strings.Index(body, "<h2>Leaderboard</h2>") {
-		t.Error("the Nordstern box is not once above the leaderboard")
+	// Who built it: said in the head, above the leaderboard; the Nordstern box once, below it.
+	if body := w.Body.String(); strings.Index(body, "Built by the team behind Nordstern, which is ranked") < 0 ||
+		strings.Index(body, "Built by the team behind Nordstern, which is ranked") > strings.Index(body, "<h2>Leaderboard</h2>") ||
+		strings.Count(body, "<b>Built by the team behind Nordstern</b>") != 1 ||
+		strings.Index(body, "<b>Built by the team behind Nordstern</b>") < strings.Index(body, "<h2>Leaderboard</h2>") {
+		t.Error("the leaderboard does not say who built it above, with the Nordstern box below")
 	}
 
 	// One table: a category per column, the best of each marked.
@@ -503,6 +505,10 @@ func TestConsistent(t *testing.T) {
 		}
 		if n, sortable := strings.Count(body, "<table"), strings.Count(body, "<table data-sortable>")+strings.Count(body, `<table class="lb" data-sortable>`); n != sortable {
 			t.Errorf("%s: %d of %d tables sort", path, sortable, n)
+		}
+		// Every clickable row ends in a link that says where it leads.
+		if rows, links := strings.Count(body, "<tr data-href"), strings.Count(body, `<a class="details"`); rows != links {
+			t.Errorf("%s: %d clickable rows, %d Details links", path, rows, links)
 		}
 	}
 	if w := get(t, h, asset("favicon.svg")); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/svg+xml" {

@@ -15,6 +15,7 @@
   <th class="left">Time</th><th class="left">Chain</th><th>Sells</th><th class="left">For</th><th>Size</th>
   <th class="left">{{head "Measured from" "Where the benchmark's collector that made the trade runs. Latency depends on it."}}</th>
   <th>{{head "Succeeded" "How many aggregators returned a transaction that succeeded when executed at once, of all asked."}}</th>
+  <th class="go"></th>
 </tr></thead>
 <tbody>
 {{range .Rows}}<tr data-href="/rounds/{{.ID}}">
@@ -25,6 +26,7 @@
   <td data-v="{{bucket .SizeBucket}}">${{.SizeBucket}}</td>
   <td class="left">{{region .Region}}</td>
   <td data-v="{{.SucceededT0}}">{{.SucceededT0}} of {{.Quotes}}</td>
+  <td class="go"><a class="details" href="/rounds/{{.ID}}"><span>Details</span> →</a></td>
 </tr>{{end}}
 </tbody>
 </table></div></div>

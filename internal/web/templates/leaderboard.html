@@ -1,15 +1,16 @@
 {{define "title"}}Leaderboard · {{.Sel.ChainName}}{{end}}
 {{define "content"}}
-<section class="page-head">
+<section class="page-head trust">
   <span class="eyebrow">Open-source DEX aggregator benchmark</span>
-  <h1>A fair ranking of <span class="grad">DEX aggregators</span></h1>
-  <p>Every aggregator gets the same trades at the same moment, and each answer is simulated 30 seconds later, about
-  when a user would have signed it in their wallet. All code and data are
-  <a href="https://github.com/IceCreamSwapCom/dex-aggregator-competitiveness">open source</a>, so every result can be
-  <a href="/rounds">verified</a>.</p>
+  <h1>Don't trust us. <span class="grad">Every metric is verifiable.</span></h1>
+  <p>Built by the team behind Nordstern, which is ranked here like every other aggregator.</p>
+  <ul class="proof">
+    <li><a href="/methodology#fair">Same trade, same moment</a></li>
+    <li><a href="/rounds">Every trade public</a></li>
+    <li><a href="https://github.com/IceCreamSwapCom/dex-aggregator-competitiveness/tree/main/cmd/resim">Re-run any trade</a></li>
+    <li><a href="https://github.com/IceCreamSwapCom/dex-aggregator-competitiveness">Open source</a></li>
+  </ul>
 </section>
-
-{{template "ours"}}
 
 <section class="card board">
   <div class="board-head">
@@ -25,17 +26,19 @@
     <th class="pos" data-sort="asc">#</th>
     <th class="left">Aggregator</th>
     {{range $i, $c := .Categories}}<th data-sort="{{if .Lower}}asc{{else}}desc{{end}}"{{if eq $i 0}} aria-sort="descending"{{end}}>{{head .Title .Help}}</th>{{end}}
+    <th class="go"></th>
   </tr></thead>
   <tbody>
   {{range .Rows}}<tr data-href="{{.Href}}">
     <td class="pos" data-v="{{.Pos}}">{{.Pos}}</td>
     <td class="left"><a class="who" href="{{.Href}}">{{avatar .Aggregator ""}}{{.Name}}</a></td>
     {{range $i, $m := .Metrics}}<td data-v="{{sortv .V}}"{{if .Best}} class="best"{{else if .Next}} class="next"{{end}}>{{if eq $i 0}}<span class="inbar"><span class="track"><i style="width: {{printf "%.1f" .Bar}}%"></i></span>{{.Text}}</span>{{else}}{{.Text}}{{end}}</td>{{end}}
+    <td class="go"><a class="details" href="{{.Href}}"><span>Details</span> →</a></td>
   </tr>{{end}}
   </tbody>
   </table></div>
   <div class="board-foot">
-    <span><b class="good">Green</b> is the best in its column, <b class="next">light green</b> the second. Click a column to sort, an aggregator for its details.</span>
+    <span><b class="good">Green</b> is the best in its column, <b class="next">light green</b> the second. Click a column to sort, a row for that aggregator's details.</span>
     <span>Data: <a href="{{.CSV}}" download>CSV</a> · <a href="{{.JSON}}">JSON</a></span>
   </div>
   {{else}}
