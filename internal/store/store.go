@@ -67,17 +67,19 @@ type Simulation struct {
 // Store is a Postgres connection pool.
 type Store struct{ pool *pgxpool.Pool }
 
-// Open connects and creates the tables if they are missing.
+// Open connects. It changes nothing in the database.
 func Open(ctx context.Context, url string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := pool.Exec(ctx, schema); err != nil {
-		pool.Close()
-		return nil, err
-	}
 	return &Store{pool: pool}, nil
+}
+
+// Create creates the tables that are missing. The collectors run it at start.
+func (s *Store) Create(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, schema)
+	return err
 }
 
 func (s *Store) Close() { s.pool.Close() }

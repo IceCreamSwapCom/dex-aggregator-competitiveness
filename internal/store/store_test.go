@@ -25,8 +25,10 @@ func TestInsert(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if _, err := s.pool.Exec(ctx, schema); err != nil { // a second start must not fail
-		t.Fatalf("schema is not idempotent: %v", err)
+	for range 2 { // a second start must not fail
+		if err := s.Create(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	big256 := new(big.Int).Lsh(big.NewInt(1), 255) // numeric(78) holds every uint256

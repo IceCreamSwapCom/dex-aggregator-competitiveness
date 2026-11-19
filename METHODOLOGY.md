@@ -179,7 +179,9 @@ node: a USDC transfer through the proxy measures 62,240 gas, against the node's 
 ## 3. Ranking and metrics
 
 All definitions are one SQL file, `internal/stats/metrics.sql`, with one row per quote. The leaderboard only adds
-these rows up.
+these rows up. A round's rows depend only on the round and the rounds that started before it. They are computed
+once, 10 minutes after the round started; a collector drops a round it could not store within 5 minutes of its
+start, so every earlier round is in by then.
 
 ### 3.1 Net output
 
@@ -230,7 +232,8 @@ The leaderboard shows win, accuracy T30, reverts and latency p50; the JSON API h
 covers all chains together: every round of every chain counts once. Since rounds are spread over the chains by
 volume, this is the benchmark of the average aggregator trade. Every aggregator is judged by the rounds of every
 chain, including the chains it does not serve. It can be narrowed to one chain, a period (24 h, 7 days, 30 days),
-a size bucket and a collector region. The metrics are recomputed every 5 minutes.
+a size bucket and a collector region. A round enters the metrics 10 minutes after it started, and the dashboard
+takes up new rounds every 5 minutes.
 
 ## 4. Verification
 

@@ -98,6 +98,6 @@ type Leaderboard struct {
 	Size        string           `json:"size,omitempty"`
 	Region      string           `json:"region,omitempty"`
 	Since       time.Time        `json:"since"`
-	RefreshedAt time.Time        `json:"refreshedAt"` // when the metrics were last recomputed
+	RefreshedAt time.Time        `json:"refreshedAt"` // the metrics include every round that started before it
 	Rows        []LeaderboardRow `json:"rows"`
 }

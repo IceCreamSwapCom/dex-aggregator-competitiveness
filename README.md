@@ -74,9 +74,17 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres go run ./cmd/w
 | `GET /api/v1/rounds?chain=&before=&limit=` | rounds that started before `before` (RFC 3339, default now), newest first; `limit` 1–1000, default 100 |
 | `GET /api/v1/rounds/{id}` | one round with every quote, transaction and simulation, in the form of `internal/api` |
 
-Every metric is defined in one file, [internal/stats/metrics.sql](internal/stats/metrics.sql): a materialized
-view with one row per quote that `web` recreates at start and refreshes every 5 minutes. The leaderboard only
-adds its rows up. Periods count back from the last refresh, and `web` keeps every answer until the next one
+Every metric is defined in one file, [internal/stats/metrics.sql](internal/stats/metrics.sql): a table with one
+row per quote and the function `settle_metrics` that adds rows to it. The leaderboard only adds the rows up. A
+round's metrics depend only on the round and the rounds that started before it, and stored rounds never change,
+so every round is settled once, 10 minutes after it started. The collectors call `settle_metrics` after every
+round they write, and drop a round they could not write within 5 minutes of its start: when a round is settled,
+every round before it is in the database. Settling rounds a few at a time gives the same rows as settling them
+all at once ([internal/stats/stats_test.go](internal/stats/stats_test.go)), and a collector that starts with a
+changed `metrics.sql` settles every round anew.
+
+`web` only reads, so any number of them can serve one database. Every 5 minutes it takes up the newly settled
+rounds; periods count back from the latest of them, and `web` keeps every answer until the next refresh
 ([internal/web/guard.go](internal/web/guard.go)).
 
 ### Your own copy
@@ -158,8 +166,8 @@ An adapter is a package in `internal/aggregator/` that implements `aggregator.Ag
 ## Layout
 
 ```
-cmd/collector/          startup checks, scheduler; aggregators.go lists the adapters
-cmd/web/                dashboard and JSON API server; refreshes the metrics
+cmd/collector/          startup checks, scheduler, settles the metrics; aggregators.go lists the adapters
+cmd/web/                dashboard and JSON API server; reads only
 cmd/resim/              standalone re-simulation of stored rounds
 cmd/distribution/       derives the chain, pair and size weights from router events
 METHODOLOGY.md          every rule, with its changelog; a config test checks it describes the configured version

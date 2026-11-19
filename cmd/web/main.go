@@ -1,6 +1,7 @@
 // Command web serves the dashboard and the JSON API from the collectors'
-// Postgres. It never writes a round; it (re)creates the metrics view at start
-// and refreshes it every 5 minutes.
+// Postgres. It only reads: the collectors create the tables and settle the
+// metrics, and web takes up what they have settled every 5 minutes. Any
+// number of webs can serve the same database.
 //
 // Environment:
 //
@@ -25,6 +26,8 @@ import (
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/web"
 )
 
+// refreshEvery is how often web takes up newly settled metrics; until then it
+// answers from memory.
 const refreshEvery = 5 * time.Minute
 
 func main() {
@@ -56,11 +59,16 @@ func run(ctx context.Context, configPath string) error {
 	}
 	defer db.Close()
 	st := stats.New(db.Pool())
-	if err := st.Create(ctx); err != nil {
-		return err
-	}
 	srv := web.New(cfg, db, st)
-	srv.Refreshed(time.Now())
+	refresh := func() {
+		settled, err := st.SettledBefore(ctx)
+		if err != nil {
+			slog.Error("reading the metrics' state", "err", err)
+			return
+		}
+		srv.Refreshed(settled)
+	}
+	refresh()
 	go func() {
 		tick := time.NewTicker(refreshEvery)
 		defer tick.Stop()
@@ -69,11 +77,7 @@ func run(ctx context.Context, configPath string) error {
 			case <-ctx.Done():
 				return
 			case <-tick.C:
-				if err := st.Refresh(ctx); err != nil {
-					slog.Error("refreshing the metrics", "err", err)
-					continue
-				}
-				srv.Refreshed(time.Now())
+				refresh()
 			}
 		}
 	}()

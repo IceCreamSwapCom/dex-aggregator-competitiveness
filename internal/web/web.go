@@ -48,7 +48,7 @@ type Server struct {
 	rounds    Rounds
 	board     *cachedBoard
 	exports   chan struct{} // a slot per CSV export that may stream at once
-	refreshed atomic.Int64  // unix seconds of the last metrics refresh
+	refreshed atomic.Int64  // unix seconds: the metrics include every round that started before
 }
 
 func New(cfg *config.Config, rounds Rounds, board Board) *Server {
@@ -57,8 +57,8 @@ func New(cfg *config.Config, rounds Rounds, board Board) *Server {
 	return s
 }
 
-// Refreshed records when the metrics were last recomputed, and forgets the
-// answers from before.
+// Refreshed takes up the metrics of every round that started before t, and
+// forgets the answers from before.
 func (s *Server) Refreshed(t time.Time) {
 	s.board.refreshed()
 	s.refreshed.Store(t.Unix())
@@ -146,8 +146,8 @@ func (s *Server) selection(q url.Values) (selection, error) {
 	if sel.Size != "" && !slices.Contains(sel.Sizes, sel.Size) {
 		return sel, fmt.Errorf("size %q is not a size bucket", sel.Size)
 	}
-	// Back from the last refresh: the metrics are as of then, and a selection
-	// stays the same until the next one, so the cache keeps it.
+	// Back from the last refresh: the metrics have every round up to then, and
+	// a selection stays the same until the next one, so the cache keeps it.
 	sel.Since = s.refreshedAt().Add(-periods[i].D)
 	return sel, nil
 }

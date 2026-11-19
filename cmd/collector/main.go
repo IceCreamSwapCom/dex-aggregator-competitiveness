@@ -10,6 +10,7 @@
 //	               API keys of the aggregators that need one, when the config lists them
 //
 // It exits when the database cannot be written: a round is never kept anywhere else.
+// After every round it writes, it settles the metrics (internal/stats).
 package main
 
 import (
@@ -33,6 +34,7 @@ import (
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/rpc"
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/sim"
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/slots"
+	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/stats"
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/store"
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/upstream"
 )
@@ -66,6 +68,13 @@ func run(ctx context.Context, configPath string) error {
 		return fmt.Errorf("database: %w", err)
 	}
 	defer db.Close()
+	if err := db.Create(ctx); err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	st := stats.New(db.Pool())
+	if err := st.Create(ctx); err != nil {
+		return fmt.Errorf("metrics: %w", err)
+	}
 
 	hc := upstream.NewHTTPClient()
 	asked, err := askedAggregators(cfg, aggregators(hc, cfg.IntegratorID, os.Getenv), os.Getenv)
@@ -90,7 +99,7 @@ func run(ctx context.Context, configPath string) error {
 	tick := time.NewTicker(every)
 	defer tick.Stop()
 	for {
-		go collect(ctx, pickChain(runners), db, failed)
+		go collect(ctx, pickChain(runners), db, st, failed)
 		select {
 		case <-ctx.Done():
 			return nil
@@ -155,18 +164,27 @@ func setUpChain(ctx context.Context, cfg *config.Config, ch config.Chain, slotsA
 	return r, nil
 }
 
-// collect runs one round and stores it. A failed write ends the collector.
-func collect(ctx context.Context, r *round.Runner, db *store.Store, failed chan<- error) {
-	rd, err := r.Run(ctx)
+// collect runs one round, stores it and settles the metrics. A failed write
+// ends the collector.
+func collect(ctx context.Context, r *round.Runner, db *store.Store, st *stats.Stats, failed chan<- error) {
+	// A round is written within stats.WriteWithin of its start or dropped: the
+	// metrics settle a round once every round that started before it is written.
+	rctx, cancel := context.WithTimeout(ctx, stats.WriteWithin)
+	defer cancel()
+	rd, err := r.Run(rctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.Warn("round dropped", "chain", r.Chain.ID, "err", err)
 		}
 		return
 	}
-	id, err := db.Insert(ctx, rd)
+	id, err := db.Insert(rctx, rd)
 	if err != nil {
-		if ctx.Err() == nil {
+		switch {
+		case ctx.Err() != nil:
+		case rctx.Err() != nil:
+			slog.Warn("round dropped: not written in time", "chain", r.Chain.ID, "within", stats.WriteWithin)
+		default:
 			select {
 			case failed <- fmt.Errorf("database write: %w", err):
 			default:
@@ -184,4 +202,8 @@ func collect(ctx context.Context, r *round.Runner, db *store.Store, failed chan<
 	}
 	slog.Info("round", "id", id, "chain", rd.ChainID, "in", rd.TokenIn, "out", rd.TokenOut, "amount", rd.AmountIn,
 		"block", rd.T0Block, "quotes", strings.Join(statuses, " "))
+
+	if err := st.Settle(ctx); err != nil && ctx.Err() == nil {
+		slog.Error("settling the metrics", "err", err)
+	}
 }

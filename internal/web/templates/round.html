@@ -37,8 +37,8 @@
 </tr>{{end}}
 </tbody>
 </table></div></div>
-<p class="muted" style="font-size:14px">Amounts in {{.Out}}. {{if not .Scored}}Gas cost and ranking appear after the next metrics refresh
-(every 5 minutes).{{else if .Unpriced}}This round is not ranked: no round in the 6 hours before it priced {{.Out}} or
+<p class="muted" style="font-size:14px">Amounts in {{.Out}}. {{if not .Scored}}Gas cost and ranking appear 10 to 15 minutes after the round
+started: it is settled once every round before it is in, and the site takes up new results every 5 minutes.{{else if .Unpriced}}This round is not ranked: no round in the 6 hours before it priced {{.Out}} or
 {{.In}} against the native coin, so its gas cannot be valued in {{.Out}}.{{else if not .Ranked}}This round is not ranked: fewer than two
 quotes succeeded at T0.{{end}}</p>
 

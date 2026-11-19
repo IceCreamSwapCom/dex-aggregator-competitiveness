@@ -1,8 +1,8 @@
--- Applied by the collector and web at every start; every statement is idempotent.
+-- Applied by the collectors at every start (store.Create); every statement is idempotent.
 -- Amounts are base units, gas prices wei. Addresses are lower-case 0x hex.
 
--- The file runs as one statement batch, and so in one transaction: this lock makes a
--- collector and web that start together create the tables one after the other.
+-- The file runs as one statement batch, and so in one transaction: this lock makes
+-- collectors that start together create the tables one after the other.
 SELECT pg_advisory_xact_lock(8453001);
 
 CREATE TABLE IF NOT EXISTS rounds (
@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS rounds (
 );
 
 CREATE INDEX IF NOT EXISTS rounds_chain_started ON rounds (chain_id, started_at);
+CREATE INDEX IF NOT EXISTS rounds_started ON rounds (started_at); -- settle_metrics (internal/stats/metrics.sql)
 
 CREATE TABLE IF NOT EXISTS quotes (
   round_id      uuid NOT NULL REFERENCES rounds,

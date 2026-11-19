@@ -13,8 +13,8 @@ import (
 
 // The site is public and needs no login, and a month of metrics takes the
 // database seconds to add up. So no traffic may cost it more than this:
-//   - the metrics only change when the view is refreshed: their answers are
-//     kept in memory until the next refresh (cachedBoard);
+//   - web takes up newly settled metrics every 5 minutes (cmd/web): their
+//     answers are kept in memory until the next refresh (cachedBoard);
 //   - at most queryWorkers of their queries run at once, however many
 //     requests wait for them;
 //   - at most exportWorkers CSV exports stream at once, one more is told to

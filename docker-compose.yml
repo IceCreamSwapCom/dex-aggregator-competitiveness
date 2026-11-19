@@ -39,6 +39,7 @@ services:
       LIFI_API_KEY: ${LIFI_API_KEY:-}
       ENSO_API_KEY: ${ENSO_API_KEY:-}
 
+  # web only reads: the collector creates the tables and settles the metrics.
   web:
     build: .
     command: ["web", "-config", "/config/benchmark.json"]
@@ -46,6 +47,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      collector:
+        condition: service_started
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
     ports:

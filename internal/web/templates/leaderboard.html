@@ -16,7 +16,7 @@
   <div class="board-head">
     <div>
       <h2>Leaderboard</h2>
-      <p>{{.Sel.ChainName}} · {{periodName .Sel.Period}} · {{count .Rounds}} trades · <span class="live"></span> updated {{ago .Refreshed}}</p>
+      <p>{{.Sel.ChainName}} · {{periodName .Sel.Period}} · {{count .Rounds}} trades · <span class="live"></span> up to {{ago .Refreshed}}</p>
     </div>
     {{template "filters" .}}
   </div>

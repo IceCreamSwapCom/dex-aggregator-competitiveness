@@ -16,6 +16,7 @@ import (
 
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/api"
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/store"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -46,9 +47,10 @@ func quote(agg string, latencyMs int, quoted string, t0, t30 *store.Simulation) 
 
 var reverted = &store.Simulation{Revert: "Too little received"}
 
-// TestLeaderboard checks metrics.sql against leaderboards worked out by hand.
-// It needs a Postgres it may create tables in, see internal/store.
-func TestLeaderboard(t *testing.T) {
+// open connects to the test database and sets it up as a collector does. It
+// needs a Postgres it may create tables in, see internal/store.
+func open(t *testing.T) (*store.Store, *Stats) {
+	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -58,7 +60,35 @@ func TestLeaderboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(db.Close)
+	if err := db.Create(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s := New(db.Pool())
+	if err := s.Create(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return db, s
+}
+
+// settleAll settles every stored round anew, as after a change to
+// metrics.sql. The tests' rounds start hours ago: before the rounds that
+// earlier settles covered.
+func settleAll(t *testing.T, s *Stats) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.pool.Exec(ctx, "UPDATE metrics_state SET definition = 'an earlier metrics.sql'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Create(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLeaderboard checks metrics.sql against leaderboards worked out by hand.
+func TestLeaderboard(t *testing.T) {
+	ctx := context.Background()
+	db, s := open(t)
 
 	chain := uint64(900_000_000 + rand.IntN(1_000_000)) // a chain of this test run only
 	start := time.Now().Add(-8 * time.Hour).Truncate(time.Second)
@@ -98,13 +128,7 @@ func TestLeaderboard(t *testing.T) {
 		quote("y", 500, "3000000000", reverted, nil),
 	)
 
-	s := New(db.Pool())
-	if err := s.Create(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Refresh(ctx); err != nil {
-		t.Fatal(err)
-	}
+	settleAll(t, s)
 	board, err := s.Leaderboard(ctx, Filter{ChainID: chain, Since: start.Add(-time.Minute)})
 	if err != nil {
 		t.Fatal(err)
@@ -221,16 +245,8 @@ func insert(t *testing.T, db *store.Store, chain uint64, at time.Time, in, out, 
 // TestGasThroughTokenIn checks that a round whose tokenOut no round has priced
 // values its gas through tokenIn: its own rate times tokenIn's price.
 func TestGasThroughTokenIn(t *testing.T) {
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL is not set")
-	}
 	ctx := context.Background()
-	db, err := store.Open(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db, s := open(t)
 	chain := uint64(900_000_000 + rand.IntN(1_000_000))
 	start := time.Now().Add(-time.Hour).Truncate(time.Second)
 
@@ -245,13 +261,7 @@ func TestGasThroughTokenIn(t *testing.T) {
 		quote("x", 100, "999000000", ok("999000000", 100_000), nil),
 		quote("y", 100, "999500000", ok("999500000", 100_000), nil))
 
-	s := New(db.Pool())
-	if err := s.Create(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Refresh(ctx); err != nil {
-		t.Fatal(err)
-	}
+	settleAll(t, s)
 	sc, err := s.Round(ctx, q)
 	if err != nil {
 		t.Fatal(err)
@@ -280,4 +290,106 @@ func show(r api.LeaderboardRow) string {
 	return fmt.Sprint(r.Aggregator, r.Requests, r.RankedRounds, p(r.Win), p(r.Within1Bp), p(r.Within5Bp),
 		p(r.AccuracyT0), p(r.AccuracyT30), p(r.Reverts),
 		r.LatencyP50Ms, r.LatencyP90Ms, r.Availability)
+}
+
+// TestSettleInSteps checks that settling rounds a few at a time, as the
+// collectors do, gives the same metrics as settling them all at once.
+func TestSettleInSteps(t *testing.T) {
+	ctx := context.Background()
+	db, s := open(t)
+	chain := uint64(900_000_000 + rand.IntN(1_000_000))
+	start := time.Now().Add(-9 * time.Hour).Truncate(time.Second)
+
+	// Rounds every 2 minutes over 8 hours, of pairs that price each other's
+	// tokens, the native coin and neither, with answers drawn at random.
+	rng := rand.New(rand.NewPCG(1, 2))
+	pairs := []struct{ in, out, amountIn, out1 string }{ // out1: the output at the market rate
+		{eth, usdc, "1000000000000000000", "3000000000"},
+		{usdc, eth, "3000000000", "1000000000000000000"},
+		{usdc, usdt, "1000000000", "999000000"},
+		{usdt, usdc, "1000000000", "1001000000"},
+	}
+	var cuts []time.Time
+	for i := range 240 {
+		p := pairs[rng.IntN(len(pairs))]
+		var quotes []store.Quote
+		for _, agg := range []string{"x", "y", "z", "w"} {
+			out := new(big.Int).Mul(n(p.out1), big.NewInt(int64(9_990+rng.IntN(20))))
+			out.Div(out, big.NewInt(10_000))
+			if rng.IntN(4) == 0 { // an exact tie with the market rate
+				out = n(p.out1)
+			}
+			gas := uint64(100_000 + 50_000*rng.IntN(4))
+			switch rng.IntN(8) {
+			case 0:
+				quotes = append(quotes, store.Quote{Aggregator: agg, Status: "no_route", Latency: 50 * time.Millisecond})
+			case 1:
+				quotes = append(quotes, quote(agg, 100+rng.IntN(900), out.String(), reverted, nil))
+			default:
+				t30 := ok(new(big.Int).Sub(out, big.NewInt(int64(rng.IntN(1000)))).String(), gas)
+				quotes = append(quotes, quote(agg, 100+rng.IntN(900), out.String(), ok(out.String(), gas), t30))
+			}
+		}
+		at := start.Add(time.Duration(i) * 2 * time.Minute)
+		insert(t, db, chain, at, p.in, p.out, p.amountIn, quotes...)
+		if rng.IntN(15) == 0 {
+			cuts = append(cuts, at.Add(time.Duration(rng.IntN(3)-1)*time.Second)) // before, at or after a round
+		}
+	}
+
+	metricsOf := func() []string {
+		t.Helper()
+		rows, err := db.Pool().Query(ctx, "SELECT m::text FROM quote_metrics m WHERE chain_id = $1 ORDER BY round_id, aggregator", int64(chain))
+		if err != nil {
+			t.Fatal(err)
+		}
+		texts, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return texts
+	}
+
+	settleAll(t, s)
+	all := metricsOf()
+
+	// Again from before the first round, a few rounds at a time; a cut that
+	// is not later than the last one settles nothing.
+	if _, err := db.Pool().Exec(ctx, "TRUNCATE quote_metrics, round_prices; UPDATE metrics_state SET settled_before = '-infinity'"); err != nil {
+		t.Fatal(err)
+	}
+	cuts = append(cuts, cuts[0])
+	for _, cut := range cuts {
+		if _, err := db.Pool().Exec(ctx, "SELECT settle_metrics($1)", cut); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Settle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	inSteps := metricsOf()
+
+	if len(all) != 4*240 {
+		t.Fatalf("%d metric rows, want %d", len(all), 4*240)
+	}
+	if !slices.Equal(inSteps, all) {
+		for i := range min(len(all), len(inSteps)) {
+			if all[i] != inSteps[i] {
+				t.Fatalf("%d cuts; first difference:\nin steps %s\nat once  %s", len(cuts), inSteps[i], all[i])
+			}
+		}
+		t.Fatalf("%d rows in steps, %d at once", len(inSteps), len(all))
+	}
+	var ranked, won int
+	if err := db.Pool().QueryRow(ctx, `SELECT count(*) FILTER (WHERE ranked), count(*) FILTER (WHERE win_share > 0 AND win_share < 1)
+		FROM quote_metrics WHERE chain_id = $1`, int64(chain)).Scan(&ranked, &won); err != nil {
+		t.Fatal(err)
+	}
+	if ranked < 400 || won == 0 {
+		t.Errorf("%d ranked quotes, %d shared wins: the rounds do not test much", ranked, won)
+	}
+	settled, err := s.SettledBefore(ctx)
+	if err != nil || time.Since(settled) < settleDelay || time.Since(settled) > settleDelay+time.Minute {
+		t.Errorf("settled before %v (%v ago), %v", settled, time.Since(settled), err)
+	}
 }

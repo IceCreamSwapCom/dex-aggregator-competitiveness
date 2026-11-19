@@ -1,40 +1,101 @@
-// Package stats reads the dashboard's numbers from the quote_metrics view,
-// which metrics.sql defines.
+// Package stats sets up the metrics that metrics.sql defines, settles the
+// rounds into them, and reads the dashboard's numbers from them.
 package stats
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/csv"
+	"encoding/hex"
+	"errors"
 	"io"
 	"time"
 
 	"github.com/IceCreamSwapCom/dex-aggregator-competitiveness/internal/api"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 //go:embed metrics.sql
 var metrics string
 
+// definition identifies metrics.sql. metrics_state records the definition the
+// stored metrics were settled by.
+var definition = func() string {
+	h := sha256.Sum256([]byte(metrics))
+	return hex.EncodeToString(h[:])
+}()
+
+const (
+	// WriteWithin is how long after its start a round may still be written: a
+	// collector drops a round it has not written by then.
+	WriteWithin = 5 * time.Minute
+	// settleDelay is how long after its start a round is settled. It is longer
+	// than WriteWithin, so every round that started before it is written by then.
+	settleDelay = 2 * WriteWithin
+)
+
 // Stats queries one database.
 type Stats struct{ pool *pgxpool.Pool }
 
 func New(pool *pgxpool.Pool) *Stats { return &Stats{pool: pool} }
 
-// Create (re)creates the view from metrics.sql, so that it always has the
-// definitions of the running version.
+// Create sets up the metrics as metrics.sql defines them, unless the stored
+// ones were settled by this very file. Otherwise it drops them and settles
+// every round anew, in one transaction: readers see the old metrics until it
+// commits. The collectors run it at start; the tables must exist (store.Create).
 func (s *Stats) Create(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, metrics)
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		// Settles wait for the lock, and collectors that start together take turns.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(8453002);
+			CREATE TABLE IF NOT EXISTS metrics_state (definition text NOT NULL, settled_before timestamptz NOT NULL)`); err != nil {
+			return err
+		}
+		var stored string
+		err := tx.QueryRow(ctx, "SELECT definition FROM metrics_state").Scan(&stored)
+		var drop string
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// A new database, or one from up to 0.2.4, where quote_metrics (and
+			// token_prices, in 0.2.4) were materialized views that web recomputed in full.
+			drop = "DROP MATERIALIZED VIEW IF EXISTS quote_metrics; DROP MATERIALIZED VIEW IF EXISTS token_prices"
+		case err != nil:
+			return err
+		case stored == definition:
+			return nil
+		default:
+			drop = "DROP FUNCTION settle_metrics; DROP TABLE quote_metrics, round_prices"
+		}
+		for _, sql := range []string{drop, metrics, "DELETE FROM metrics_state"} {
+			if _, err := tx.Exec(ctx, sql); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(ctx, "INSERT INTO metrics_state VALUES ($1, '-infinity')", definition); err != nil {
+			return err
+		}
+		return settle(ctx, tx)
+	})
+}
+
+// Settle adds the metrics of the rounds that started settleDelay ago or
+// earlier and are not settled yet. The collectors call it after every round.
+func (s *Stats) Settle(ctx context.Context) error { return settle(ctx, s.pool) }
+
+func settle(ctx context.Context, db interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}) error {
+	_, err := db.Exec(ctx, "SELECT settle_metrics(now() - $1::interval)", settleDelay)
 	return err
 }
 
-// Refresh recomputes the views from the stored rounds. Readers keep seeing
-// the previous numbers until it is done.
-func (s *Stats) Refresh(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `REFRESH MATERIALIZED VIEW CONCURRENTLY token_prices;
-		REFRESH MATERIALIZED VIEW CONCURRENTLY quote_metrics`)
-	return err
+// SettledBefore is the time before which every round that started is in the metrics.
+func (s *Stats) SettledBefore(ctx context.Context) (time.Time, error) {
+	var t time.Time
+	err := s.pool.QueryRow(ctx, "SELECT settled_before FROM metrics_state").Scan(&t)
+	return t, err
 }
 
 // Filter selects the rounds a leaderboard covers. Zero values select all.
@@ -208,7 +269,7 @@ type Score struct {
 }
 
 // Round is the scores of a round's quotes by aggregator; empty until the
-// view's next refresh after the round.
+// round is settled.
 func (s *Stats) Round(ctx context.Context, id string) (map[string]Score, error) {
 	rows, err := s.pool.Query(ctx, `SELECT aggregator, coalesce(round(gas_cost)::text, ''), coalesce(round(net)::text, ''), ranked,
 			coalesce(win_share, 0)::float8, coalesce(within_1bp, false), coalesce(within_5bp, false)
@@ -232,7 +293,7 @@ func (s *Stats) Round(ctx context.Context, id string) (map[string]Score, error) 
 // Export writes every quote of the rounds f selects as CSV, oldest first:
 // the round, the quote, both simulations and how the quote ranked. Calldata
 // and the raw answers are left out (they are in the round API); the ranking
-// columns are empty until the metrics refresh after the round. Rows are
+// columns are empty until the round is settled. Rows are
 // streamed, so a month of rounds never sits in memory.
 func (s *Stats) Export(ctx context.Context, f Filter, w io.Writer) error {
 	rows, err := s.pool.Query(ctx, `SELECT r.id::text AS round_id,
