@@ -29,10 +29,11 @@ func (s *Stats) Create(ctx context.Context) error {
 	return err
 }
 
-// Refresh recomputes the view from the stored rounds. Readers keep seeing
+// Refresh recomputes the views from the stored rounds. Readers keep seeing
 // the previous numbers until it is done.
 func (s *Stats) Refresh(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, "REFRESH MATERIALIZED VIEW CONCURRENTLY quote_metrics")
+	_, err := s.pool.Exec(ctx, `REFRESH MATERIALIZED VIEW CONCURRENTLY token_prices;
+		REFRESH MATERIALIZED VIEW CONCURRENTLY quote_metrics`)
 	return err
 }
 
