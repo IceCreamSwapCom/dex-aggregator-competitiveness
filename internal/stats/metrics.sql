@@ -1,6 +1,6 @@
 -- Every dashboard metric is defined here (METHODOLOGY.md, 3), as one row per quote;
 -- the leaderboard (stats.go) only adds those rows up. web runs this file at
--- every start and refreshes the view every 5 minutes.
+-- every start and refreshes the views every 5 minutes.
 --
 -- Amounts are tokenOut base units, gas prices wei.
 
@@ -8,21 +8,26 @@
 SELECT pg_advisory_xact_lock(8453002);
 
 DROP MATERIALIZED VIEW IF EXISTS quote_metrics;
+DROP MATERIALIZED VIEW IF EXISTS token_prices;
+
+-- A round that sold the native coin for token X, or X for it, prices X: the
+-- median over its successful T0 simulations of X base units per wei. Wrapped
+-- native counts as native. A view of its own so that each round's price lookup
+-- is an index search, not a scan of every price.
+CREATE MATERIALIZED VIEW token_prices AS
+SELECT r.id, r.chain_id, r.started_at,
+       CASE WHEN r.token_in_native THEN r.token_out ELSE r.token_in END AS token,
+       percentile_disc(0.5) WITHIN GROUP (ORDER BY
+         CASE WHEN r.token_in_native THEN q.t0_out / r.amount_in ELSE r.amount_in / q.t0_out END) AS per_wei
+FROM rounds r JOIN quotes q ON q.round_id = r.id
+WHERE r.token_in_native <> r.token_out_native AND q.t0_success AND q.t0_out > 0
+GROUP BY r.id;
+
+CREATE UNIQUE INDEX token_prices_key ON token_prices (id);
+CREATE INDEX token_prices_lookup ON token_prices (chain_id, token, started_at);
 
 CREATE MATERIALIZED VIEW quote_metrics AS
 WITH
--- A round that sold the native coin for token X, or X for it, prices X: the
--- median over its successful T0 simulations of X base units per wei. Wrapped
--- native counts as native.
-prices AS (
-  SELECT r.id, r.chain_id, r.started_at,
-         CASE WHEN r.token_in_native THEN r.token_out ELSE r.token_in END AS token,
-         percentile_disc(0.5) WITHIN GROUP (ORDER BY
-           CASE WHEN r.token_in_native THEN q.t0_out / r.amount_in ELSE r.amount_in / q.t0_out END) AS per_wei
-  FROM rounds r JOIN quotes q ON q.round_id = r.id
-  WHERE r.token_in_native <> r.token_out_native AND q.t0_success AND q.t0_out > 0
-  GROUP BY r.id
-),
 -- What the round's own quotes sold tokenIn for: the median over its
 -- successful T0 simulations of tokenOut base units per tokenIn base unit.
 rates AS (
@@ -38,18 +43,21 @@ rates AS (
 rounds_priced AS (
   SELECT r.*,
          CASE WHEN r.token_out_native THEN 1::numeric ELSE coalesce(
-           (SELECT p.per_wei FROM prices p
-            WHERE p.chain_id = r.chain_id AND p.token = r.token_out
-              AND p.started_at <= r.started_at AND p.started_at > r.started_at - interval '6 hours'
-            ORDER BY p.started_at DESC LIMIT 1),
-           (SELECT a.out_per_in FROM rates a WHERE a.round_id = r.id) *
-           CASE WHEN r.token_in_native THEN 1::numeric ELSE (
-             SELECT p.per_wei FROM prices p
-             WHERE p.chain_id = r.chain_id AND p.token = r.token_in
-               AND p.started_at <= r.started_at AND p.started_at > r.started_at - interval '6 hours'
-             ORDER BY p.started_at DESC LIMIT 1) END
+           price_out.per_wei,
+           a.out_per_in * CASE WHEN r.token_in_native THEN 1::numeric ELSE price_in.per_wei END
          ) END AS out_per_wei
   FROM rounds r
+  LEFT JOIN rates a ON a.round_id = r.id
+  LEFT JOIN LATERAL (
+    SELECT p.per_wei FROM token_prices p
+    WHERE p.chain_id = r.chain_id AND p.token = r.token_out
+      AND p.started_at <= r.started_at AND p.started_at > r.started_at - interval '6 hours'
+    ORDER BY p.started_at DESC LIMIT 1) price_out ON true
+  LEFT JOIN LATERAL (
+    SELECT p.per_wei FROM token_prices p
+    WHERE p.chain_id = r.chain_id AND p.token = r.token_in
+      AND p.started_at <= r.started_at AND p.started_at > r.started_at - interval '6 hours'
+    ORDER BY p.started_at DESC LIMIT 1) price_in ON true
 ),
 -- net = what the taker receives at T0 minus what the transaction's gas costs, in tokenOut.
 nets AS (
